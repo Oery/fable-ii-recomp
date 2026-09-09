@@ -1389,3 +1389,66 @@ extern "C" void sub_825BAFC0(PPCContext& ctx, uint8_t* base) {
   probe_o_825BAFC0(ctx, base);
   if (log) { std::fprintf(stderr, "5BAFC0-EXIT\n"); }
 }
+
+// TEST (reversible): post-populate sequencer probes (first-hit + passthrough).
+// Populate (822F2608) returns into sub_822EA928's shared restore+blr epilogue
+// (82CA2C38/3C, not hookable: no __imp symbol), so the sequencer's next known
+// calls are probed instead. Static fan-in (guest-image.bin bl scan):
+// - 82CBB638: sole caller 822EA8D4 (first call inside the 822EA8C0 branch) =>
+//   entry fires iff the sequencer branch runs its body.
+// - 82CA97B8: sole caller 82CBBB10 (mr r30,r3; bl right after 822EA8C0
+//   returns, LR=82CBBB0C) => entry fires iff the branch RETURNED and
+//   sub_82CBB788 advanced past it.
+// - 82CBB788: head of the 822EA8C0 caller chain ([82CBB788,82CBB964]); only
+//   static caller is its own guarded recursion (82CBB9B0), so first entry
+//   arrives indirectly and entry LR reveals the driver.
+// Interleave with 822F2608 populate-dispatch #n + 822EA8C0-ENTER/EXIT counters
+// to read the post-populate order off the log. Rejected: 82CBBF60 (91 direct
+// callers), 821E6388 (105), 82CA34B0 (8) — shared utilities whose first hit
+// would fire from unrelated paths; 832B26CC/832B230C (import thunks, no
+// DEFINE_REX_FUNC).
+REX_IMPORT(__imp__sub_82CBB638, probe_o_82CBB638, void());
+extern "C" void sub_82CBB638(PPCContext& ctx, uint8_t* base) {
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    std::fprintf(stderr, "PROBE-HIT 82CBB638 branch-entry lr=%08X\n",
+                 (uint32_t)ctx.lr);
+  }
+  probe_o_82CBB638(ctx, base);
+  static bool done = false;
+  if (!done) {
+    done = true;
+    std::fprintf(stderr, "PROBE-HIT 82CBB638-EXIT returned\n");
+  }
+}
+REX_IMPORT(__imp__sub_82CA97B8, probe_o_82CA97B8, void());
+extern "C" void sub_82CA97B8(PPCContext& ctx, uint8_t* base) {
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    std::fprintf(stderr, "PROBE-HIT 82CA97B8 post-branch lr=%08X\n",
+                 (uint32_t)ctx.lr);
+  }
+  probe_o_82CA97B8(ctx, base);
+  static bool done = false;
+  if (!done) {
+    done = true;
+    std::fprintf(stderr, "PROBE-HIT 82CA97B8-EXIT returned\n");
+  }
+}
+REX_IMPORT(__imp__sub_82CBB788, probe_o_82CBB788, void());
+extern "C" void sub_82CBB788(PPCContext& ctx, uint8_t* base) {
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    std::fprintf(stderr, "PROBE-HIT 82CBB788 chain-head lr=%08X\n",
+                 (uint32_t)ctx.lr);
+  }
+  probe_o_82CBB788(ctx, base);
+  static bool done = false;
+  if (!done) {
+    done = true;
+    std::fprintf(stderr, "PROBE-HIT 82CBB788-EXIT returned\n");
+  }
+}

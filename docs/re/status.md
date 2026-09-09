@@ -915,3 +915,41 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   Rebuild note: `rexui` (ReXApp) compiles into the game binary — Game
   rebuild picks up `rexglue-sdk/src/ui/*` edits; `scripts/build-sdk`
   alone does not.
+
+## Post-populate sequencer probes 2026-09-09 (drafted, not yet built/run)
+
+- Static chain (worktree `tooling/ppc-disasm` + guest-image.bin bl scan,
+  main-repo generated/ read-only for DEFINE_REX_FUNC):
+  - `sub_82CBB788` [82CBB788,82CBB964] calls the sequencer branch
+    `822EA8C0` at `82CBBB08` (sole image-wide caller); on return
+    (LR=`82CBBB0C`) it does `mr r30,r3; bl 82CA97B8`, then import-thunk
+    calls (`832B26CC`, `832B230C`, not hookable), ending with blr at
+    `82CBB964`. Its only static caller is its own guarded recursion
+    (`82CBB9B0`), so first entry arrives indirectly (funcptr/thread).
+  - `822EA8C0` body calls, in order: `82CBB638`, `82CBB570`,
+    `821E6388`, `82CA34B0`, `82196C58`, `82CBBF60`, then blr.
+  - Populate (`822F2608`) has exactly two callers, `822EAA74`
+    (drain path, after `822F47F8`+`822F4690`) and `822EAA8C`
+    (direct path, stores 1 to `[0x83496898]`), both inside the large
+    `sub_822EA928` sequencer, both followed by frame teardown +
+    `b 82CA2C38` (shared restore+blr epilogue, not hookable).
+  - `sub_822EA928` itself has zero direct callers (indirect entry).
+- New probes in `src/hooks.cpp` (first-hit entry+exit, LR, passthrough
+  only; existing hooks untouched):
+  - `82CBB638` (`branch-entry`): sole caller `822EA8D4`, first call in
+    the branch body. Reveals whether the sequencer branch runs at all.
+  - `82CA97B8` (`post-branch`): sole caller `82CBBB10`. Reveals whether
+    the branch RETURNED and the caller advanced past LR=`82CBBB0C`.
+  - `82CBB788` (`chain-head`): reveals the indirect driver via entry LR
+    (no static external caller exists to name it).
+  - Rejected: `82CBBF60` (91 callers), `821E6388` (105), `82CA34B0`
+    (8) — shared utilities, first hit would mislead; `832B26CC` /
+    `832B230C` — import thunks without DEFINE_REX_FUNC.
+- Proposed post-populate sequence (to confirm from log interleave with
+  `822F2608 populate-dispatch #n` + `822EA8C0-ENTER/EXIT` counters):
+  `822F2608` returns -> `82CA2C38` epilogue -> `sub_822EA928` returns to
+  its indirect caller -> `sub_82CBB788` chain-head (entry LR names the
+  driver) -> `822EA8C0` branch body (`82CBB638` first) -> branch return
+  -> `82CA97B8` continuation. If `82CA97B8` hits land after
+  populate-EXIT, the branch runs post-populate and its LRs give the
+  next frontier toward menu/title.
