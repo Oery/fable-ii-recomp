@@ -1,0 +1,13 @@
+{
+  "media_id": "0x1358B1A4",
+  "version": "0x0000001B",
+  "base_version": "0x0000001B",
+  "title_id": "0x4D5307F1",
+  "platform": 0,
+  "executable_table": 0,
+  "disc_number": 1,
+  "disc_count": 1,
+  "savegame_id": "0x00000000",
+  "entry_point": "0x82CBB970",
+  "image_base": "0x82000000"
+}

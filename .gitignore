@@ -1,0 +1,10 @@
+/Fable II Game of the Year Edition/
+/assets-extracted/
+/generated/
+/build/
+/out/
+/logs/
+/tooling/
+/rexglue-sdk/
+/result
+.direnv/

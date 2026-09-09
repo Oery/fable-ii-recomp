@@ -1,0 +1,83 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 783563a..f2f3004 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -170,7 +170,7 @@ elseif(UNIX)
+     find_package(PkgConfig REQUIRED)
+     set(ENV{PKG_CONFIG_PATH} "/usr/local/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+ 
+-    pkg_check_modules(LZ4 REQUIRED lz4)
++    pkg_check_modules(LZ4 REQUIRED liblz4)
+     pkg_check_modules(ZSTD REQUIRED libzstd)
+     find_package(OpenSSL REQUIRED)
+     find_package(CURL REQUIRED)
+@@ -223,4 +223,3 @@ else()
+ 
+ endif()
+ 
+-
+diff --git a/src/ImageWriter/CCIWriter/CCIWriter.cpp b/src/ImageWriter/CCIWriter/CCIWriter.cpp
+index 4bb57da..f569143 100644
+--- a/src/ImageWriter/CCIWriter/CCIWriter.cpp
++++ b/src/ImageWriter/CCIWriter/CCIWriter.cpp
+@@ -1,4 +1,5 @@
+ #include <functional>
++#include <algorithm>
+ #include <cstring>
+ 
+ #include <lz4hc.h>
+@@ -481,4 +482,4 @@ std::vector<std::filesystem::path> CCIWriter::out_paths()
+     }
+ 
+     return { out_filepath_1_ };
+-}
+\ No newline at end of file
++}
+diff --git a/src/ImageWriter/CSOWriter/CSOWriter.cpp b/src/ImageWriter/CSOWriter/CSOWriter.cpp
+index 6f02e59..88bfcc0 100644
+--- a/src/ImageWriter/CSOWriter/CSOWriter.cpp
++++ b/src/ImageWriter/CSOWriter/CSOWriter.cpp
+@@ -1,4 +1,5 @@
+ #include <cstring>
++#include <algorithm>
+ 
+ #include "AvlTree/AvlIterator.h"
+ #include "ImageWriter/CSOWriter/CSOWriter.h"
+@@ -535,4 +536,4 @@ std::vector<std::filesystem::path> CSOWriter::out_paths()
+     }
+ 
+     return { out_filepath_1_ };
+-}
+\ No newline at end of file
++}
+diff --git a/src/Utils/StringUtils.h b/src/Utils/StringUtils.h
+index e24343f..bdb4dad 100644
+--- a/src/Utils/StringUtils.h
++++ b/src/Utils/StringUtils.h
+@@ -2,6 +2,7 @@
+ #define _STRING_UTILS_H_
+ 
+ #include <string>
++#include <cstdint>
+ #include <vector>
+ 
+ namespace StringUtils {
+@@ -14,4 +15,4 @@ namespace StringUtils {
+     std::string uint32_to_hex_string(uint32_t value);
+ };
+ 
+-#endif // _STRING_UTILS_H_
+\ No newline at end of file
++#endif // _STRING_UTILS_H_
+diff --git a/src/XGDLog.h b/src/XGDLog.h
+index 075fcac..9665a24 100644
+--- a/src/XGDLog.h
++++ b/src/XGDLog.h
+@@ -2,6 +2,7 @@
+ #define _XGDLOG_H_
+ 
+ #include <iostream>
++#include <cstdint>
+ #include <sstream>
+ 
+ enum LogLevel {

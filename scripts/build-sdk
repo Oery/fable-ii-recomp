@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+[[ $(git -C rexglue-sdk rev-parse HEAD) == c94f5ebdcb3c9d1a460ca48e04f9758448f8d518 ]]
+cmake -S rexglue-sdk -B build/sdk -G Ninja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_C_FLAGS=-march=x86-64-v2 \
+    -DCMAKE_CXX_FLAGS=-march=x86-64-v2 \
+    -DCMAKE_INSTALL_PREFIX="$PWD/build/sdk-install"
+cmake --build build/sdk --target "${1:-rexglue}" -j "${BUILD_JOBS:-12}"

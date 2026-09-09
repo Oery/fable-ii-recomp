@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+mkdir -p tooling
+clang++ -std=c++23 -O2 -g -Irexglue-sdk/src/codegen -Irexglue-sdk/thirdparty/disasm \
+    scripts/ppc-disasm.cpp rexglue-sdk/src/codegen/ppc/disasm.cpp \
+    rexglue-sdk/out/linux-amd64/libdisasmrd.a -o tooling/ppc-disasm

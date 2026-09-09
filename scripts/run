@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+if [[ ! -x build/native/fable_ii ]]; then
+  echo "build/native/fable_ii is missing; run nix develop path:. -c scripts/build" >&2
+  exit 1
+fi
+
+mkdir -p runtime/update-empty
+mkdir -p logs
+export LD_LIBRARY_PATH="$PWD/rexglue-sdk/out/linux-amd64:${LD_LIBRARY_PATH:-}"
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-offscreen}"
+
+run_seconds="${RUN_SECONDS:-10}"
+stop_signal="${RUN_STOP_SIGNAL:-KILL}"
+status=0
+timeout --signal="$stop_signal" "$run_seconds" build/native/fable_ii \
+  --game_data_root=assets-extracted/00007000 \
+  --update_data_root=runtime/update-empty \
+  "$@" >logs/runtime-console.log 2>&1 || status=$?
+
+scripts/inspect-last-run
+if [[ "$status" == "124" || "$status" == "137" ]]; then
+  echo "Run reached its time limit. RUN_STOP_SIGNAL defaults to KILL so active-run"
+  echo "logs are preserved; set RUN_STOP_SIGNAL=INT only when testing shutdown."
+fi
+exit "$status"

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+latest="$({ find build/native/logs -maxdepth 1 -type f -name 'fable_ii_*.log' \
+  -printf '%T@ %p\n' 2>/dev/null || true; } | sort -n | tail -1 | cut -d' ' -f2-)"
+
+if [[ -z "$latest" ]]; then
+  echo "No build/native/logs/fable_ii_*.log file exists." >&2
+  exit 1
+fi
+
+echo "$latest"
+echo "High-signal runtime lines:"
+rg -n \
+  'FATAL|critical|invalid or unregistered|SetInterruptCallback|audio endpoint|Window closing|Title terminated' \
+  "$latest" || true
+fault_count="$(rg -c 'Unhandled guest access violation' "$latest" || true)"
+if [[ "$fault_count" != "0" && -n "$fault_count" ]]; then
+  echo "Guest access violations: $fault_count (first five follow)"
+  rg -n -m 5 'Unhandled guest access violation' "$latest" || true
+fi
+echo "Final 30 lines:"
+tail -n 30 "$latest"

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+revision=a372d7a768b77908f266845a54052ee89650eb0f
+mkdir -p tooling logs
+if [[ ! -d tooling/XGDTool ]]; then
+    git clone https://github.com/wiredopposite/XGDTool.git tooling/XGDTool
+    git -C tooling/XGDTool checkout --detach "$revision"
+fi
+[[ $(git -C tooling/XGDTool rev-parse HEAD) == "$revision" ]]
+git -C tooling/XGDTool submodule update --init external/ZArchive external/cmake-bin2h
+patch_file="$PWD/docs/re/xgdtool-linux.patch"
+if git -C tooling/XGDTool apply --check "$patch_file" 2>/dev/null; then
+    git -C tooling/XGDTool apply "$patch_file"
+else
+    git -C tooling/XGDTool apply --reverse --check "$patch_file"
+fi
+mkdir -p tooling/XGDTool/external/{nlohmann,CLI}
+if [[ ! -s tooling/XGDTool/external/nlohmann/json.hpp ]]; then
+    curl -fL https://github.com/nlohmann/json/releases/download/v3.11.2/json.hpp -o tooling/XGDTool/external/nlohmann/json.hpp
+fi
+if [[ ! -s tooling/XGDTool/external/CLI/CLI.hpp ]]; then
+    curl -fL https://github.com/CLIUtils/CLI11/releases/download/v2.4.2/CLI11.hpp -o tooling/XGDTool/external/CLI/CLI.hpp
+fi
+sha256sum -c docs/re/xgdtool-headers.sha256
+cmake -S tooling/XGDTool -B tooling/XGDTool/build -G Ninja -DENABLE_GUI=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake --build tooling/XGDTool/build -j "${BUILD_JOBS:-12}"
+tooling/XGDTool/build/XGDTool --help

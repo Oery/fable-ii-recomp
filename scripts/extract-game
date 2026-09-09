@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Extract the supplied GoD once, or verify an existing extraction."""
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = ROOT / 'Fable II Game of the Year Edition/4D5307F1/00007000'
+OUTPUT = ROOT / 'assets-extracted'
+GAME = OUTPUT / '00007000'
+TOOL = ROOT / 'tooling/XGDTool/build/XGDTool'
+
+
+def verify():
+    expected = json.loads((ROOT / 'docs/re/game-files.json').read_text())
+    actual = {str(p.relative_to(GAME)): p.stat().st_size
+              for p in GAME.rglob('*') if p.is_file()}
+    if expected != actual:
+        raise RuntimeError('Extracted file paths/sizes differ from verified GoD listing')
+    subprocess.run(['sha256sum', '-c', 'docs/re/entry-xex.sha256'], cwd=ROOT, check=True)
+    if (GAME / 'default.xex').read_bytes()[:4] != b'XEX2':
+        raise RuntimeError('Entry executable is not XEX2')
+    print(f'Verified {len(actual)} files; game root: {GAME}')
+
+
+def main():
+    subprocess.run(['sha256sum', '-c', 'docs/re/original-inputs.sha256'], cwd=ROOT, check=True)
+    if GAME.exists():
+        verify()
+        return
+    if OUTPUT.exists():
+        raise RuntimeError('Refusing to overwrite an existing output directory')
+    if not TOOL.is_file():
+        raise RuntimeError('Build XGDTool first: nix develop path:. -c scripts/build-extractor')
+    if PACKAGE.resolve() == OUTPUT.resolve() or PACKAGE.resolve() in OUTPUT.resolve().parents:
+        raise RuntimeError('Output overlaps original input')
+    (ROOT / 'logs').mkdir(exist_ok=True)
+    with (ROOT / 'logs/extraction.log').open('w') as log:
+        subprocess.run([str(TOOL), '--extract', '--offline', str(PACKAGE), str(OUTPUT)],
+                       cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
+    # XGDTool can return zero after a failed conversion, so verify independently.
+    verify()
+    subprocess.run(['sha256sum', '-c', 'docs/re/original-inputs.sha256'], cwd=ROOT, check=True)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (RuntimeError, OSError, subprocess.CalledProcessError) as error:
+        sys.exit(str(error))

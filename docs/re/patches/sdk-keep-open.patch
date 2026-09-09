@@ -1,0 +1,41 @@
+src/ui/rex_app.cpp --- C++
+471     module_thread_ = std::thread([t  471     module_thread_ = std::thread([t
+... his, main_thread = std::move(main_t  ... his, main_thread = std::move(main_t
+... hread)]() mutable {                  ... hread)]() mutable {
+472       main_thread->Wait(0, 0, 0, nu  472       main_thread->Wait(0, 0, 0, nu
+... llptr);                              ... llptr);
+473       OnGuestThreadExit(main_thread  473       OnGuestThreadExit(main_thread
+... .get());                             ... .get());
+...                                      474       // Fable II bring-up (2026-09
+...                                      ... -09): the title's entry thread retu
+...                                      ... rns
+...                                      475       // ~4 s after launch while wo
+...                                      ... rker threads (GameThread drain/popu
+...                                      ... late,
+...                                      476       // bank, 3D) continue booting
+...                                      ...  for minutes. Quitting here closes 
+...                                      ... the
+...                                      477       // visible window seconds aft
+...                                      ... er it appears. Stay open instead; t
+...                                      ... he
+...                                      478       // user closes the window whe
+...                                      ... n done (OnClosing still hard-exits)
+...                                      ... .
+...                                      479       // TODO(upstream): gate on ti
+...                                      ... tle behavior (quit only when all gu
+...                                      ... est
+...                                      480       // threads have exited) rathe
+...                                      ... r than main-thread exit.
+474       REXLOG_INFO("Execution comple  481       REXLOG_INFO("Guest main threa
+... te");                                ... d exited; keeping application open.
+...                                      ... ");
+475       if (!shutting_down_.load(std:  ... 
+... :memory_order_acquire)) {            ... 
+476         app_context().CallInUIThrea  ... 
+... d([this]() { app_context().QuitFrom  ... 
+... UIThread(); });                      ... 
+477       }                              ... 
+478     });                              482     });
+479   });                                483   });
+480 }                                    484 }
+

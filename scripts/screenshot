@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Capture the fable_ii game window to a PNG for visual verification.
+# Usage: scripts/screenshot [output.png]
+# Requires: X11 display in DISPLAY (user's :0), nix.
+set -euo pipefail
+OUT="${1:-/tmp/game.png}"
+export DISPLAY="${DISPLAY:-:0}"
+WIN=$(nix run nixpkgs#xwininfo -- -tree -root 2>/dev/null | grep -i fable | head -1 | awk '{print $1}')
+if [[ -z "$WIN" ]]; then
+  echo "no fable_ii window found" >&2
+  exit 1
+fi
+nix run nixpkgs#xwd -- -silent -id "$WIN" -out /tmp/game-shot.xwd
+nix run nixpkgs#imagemagick -- /tmp/game-shot.xwd "$OUT"
+echo "$OUT"

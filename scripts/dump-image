@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+mkdir -p tooling logs
+sha256sum -c docs/re/entry-xex.sha256
+gdb -q -batch -x scripts/dump-image.gdb --args \
+    rexglue-sdk/out/linux-amd64/rexgluerd codegen fable_ii_manifest.toml --ignore-stamp \
+    2>&1 | tee logs/dump-image.log
