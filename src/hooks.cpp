@@ -347,6 +347,7 @@ extern "C" void sub_82378BB8(PPCContext& ctx, uint8_t* base) {
 }
 static uint32_t drain_flag_addr = 0;
 static uint32_t drain_item_addr = 0;
+uint32_t gate_byte_addr = 0;
 REX_IMPORT(__imp__sub_82B67950, probe_o_82B67950, void());
 extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
@@ -357,32 +358,49 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
   if (drain_flag_addr >= 0x10000) {
     static uint8_t last = 0xFF;
     static unsigned long n = 0;
-    static bool synthed = false;
     static long long t0 = 0;
     uint8_t cur = *(base + drain_flag_addr);
+    if (t0 == 0) {
+      t0 = (long long)time(nullptr);
+    }
     if (++n == 1 || cur != last) {
       last = cur;
       std::fprintf(stderr, "FLAGWATCH %02X\n", cur);
     }
-    // TEST (reversible): synthesize the missing completion once. The drain
-    // flag never clears (no worker owns the item) and GameThread parks on
-    // it while populate (its own next step) never runs. 90 s after first
-    // sight with the flag still set, clear it once: if GameThread advances
-    // to populate/menu, the flag was the sole blocker; if something
-    // re-sets it, a legit producer is just slow; on corruption, revert.
-    if (!synthed) {
-      if (t0 == 0) {
-        t0 = (long long)time(nullptr);
+    // Drain-wait exit gate byte ([gateobj+44], zero-tested by 82185418):
+    // change-logged; the drain exits only when this reaches 0.
+    if (gate_byte_addr >= 0x10000) {
+      static uint8_t glast = 0xFF;
+      static unsigned long gn = 0;
+      uint8_t gcur = *(base + gate_byte_addr);
+      if (++gn == 1 || gcur != glast) {
+        glast = gcur;
+        std::fprintf(stderr, "GATEWATCH %02X\n", gcur);
       }
-      if (cur != 0 && (long long)time(nullptr) - t0 > 90) {
-        synthed = true;
-        *(base + drain_flag_addr) = 0;
-        if (drain_item_addr >= 0x10000) {
-          *(base + drain_item_addr + 0x88) = 0;
-        }
-        std::fprintf(stderr, "FLAGSYNTH cleared %08X item=%08X\n",
-                     drain_flag_addr, drain_item_addr);
+    }
+    // TEST (reversible): synthesize missing drain completions, REPEATING.
+    // The drain processes items sequentially; each can park on (a) the
+    // 01-flag, (b) the gate byte, (c) the spin byte, with no producer
+    // owning them in our boot. One-shots covered only the first item, so
+    // each synth re-fires on cooldown while its condition persists.
+    static long long lastflag = 0;
+    if (cur != 0 && (long long)time(nullptr) - t0 > 30 &&
+        (long long)time(nullptr) - lastflag > 30) {
+      lastflag = (long long)time(nullptr);
+      *(base + drain_flag_addr) = 0;
+      if (drain_item_addr >= 0x10000) {
+        *(base + drain_item_addr + 0x88) = 0;
       }
+      std::fprintf(stderr, "FLAGSYNTH cleared %08X item=%08X\n",
+                   drain_flag_addr, drain_item_addr);
+    }
+    static long long lastgate = 0;
+    if (lastflag != 0 && gate_byte_addr >= 0x10000 &&
+        *(base + gate_byte_addr) == 0 &&
+        (long long)time(nullptr) - lastgate > 30) {
+      lastgate = (long long)time(nullptr);
+      *(base + gate_byte_addr) = 1;
+      std::fprintf(stderr, "GATESYNTH set %08X\n", gate_byte_addr);
     }
   }
   probe_o_82B67950(ctx, base);
@@ -485,9 +503,7 @@ extern "C" void sub_829FF648(PPCContext& ctx, uint8_t* base) {
   } else if (nlr < 12) {
     ++nlr;
     std::fprintf(stderr, "PROBE-HIT 829FF648 #%u lr=%08X\n", n, lr);
-  } else if (g_pop_active) {
-    std::fprintf(stderr, "PROBE-HIT 829FF648-POP #%u lr=%08X\n", n, lr);
-  } else if ((n % 4) == 1) {
+  } else if ((n % 64) == 1) {
     std::fprintf(stderr, "PROBE-HIT 829FF648 seq-step #%u\n", n);
 }
   probe_o_829FF648(ctx, base);
@@ -520,8 +536,10 @@ extern "C" void sub_822F5718(PPCContext& ctx, uint8_t* base) {
       }
     }
   }
-  std::fprintf(stderr, "VTABLE+0 #%u slot=%08X obj=%08X vt=%08X tgt=%08X\n",
-               n, slot, obj, vt, tgt);
+  if (n <= 2) {
+    std::fprintf(stderr, "VTABLE+0 #%u slot=%08X obj=%08X vt=%08X tgt=%08X\n",
+                 n, slot, obj, vt, tgt);
+  }
   static bool done = false;
   if (!done) {
     done = true;
@@ -572,6 +590,9 @@ extern "C" void sub_82356698(PPCContext& ctx, uint8_t* base) {
   uint32_t chain[4] = {48, 44, 40, 36};
   uint32_t off[4] = {8, 8, 0, 0};
   std::fprintf(stderr, "PROBE-HIT 82356698-EXIT #%u lr=%08X\n", ++nx, exlr);
+  if (nx > 2 && exlr != 0x822F26C4) {
+    return;
+  }
   for (int i = 0; i < 4; ++i) {
     uint32_t slot = 0, obj = 0, vt = 0, tgt = 0;
     if (r31 >= 0x10000) {
@@ -973,6 +994,16 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
     }
     std::fprintf(stderr, "VIRTTGT vt=%08X [16]=%08X [20]=%08X [24]=%08X [28]=%08X\n",
                  vt, s16, s20, s24, s28);
+    // Drain-wait exit gate (0x823787F0): virtual [vtable+16] on the object
+    // at global [0x8349E6EC] (r28=0x834A0000-ish, [r28-6420]). Resolve it.
+    uint32_t gobj = rd(0x8349E6EC);
+    uint32_t gvt = (gobj >= 0x10000 && gobj < 0x84000000) ? rd(gobj) : 0;
+    uint32_t gtgt = (gvt >= 0x10000 && gvt < 0x84000000) ? rd(gvt + 16) : 0;
+    std::fprintf(stderr, "GATETGT obj=%08X vt=%08X tgt=%08X\n", gobj, gvt,
+                 gtgt);
+    if (gobj >= 0x10000) {
+      gate_byte_addr = gobj + 44;
+    }
   }
   probe_o_823784A0(ctx, base);
   static unsigned nret = 0;
@@ -1053,6 +1084,34 @@ extern "C" void sub_822F3640(PPCContext& ctx, uint8_t* base) {
     std::fprintf(stderr, "GTLOCK global=%08X o11=%08X r31=%08X lock=%08X count=%d owner=%08X\n",
                  gl, o11, r31, lk, lc, ow);
   }
+  // Post-loop spin sampler (0x82378834: waits for [r31+5]!=0): sampled
+  // + value-logged so post-synth progress stays visible.
+  if (lr == 0x82378834) {
+    static unsigned long sn = 0;
+    uint32_t r3v = ctx.r3.u32;
+    uint8_t b5 = 0xEE;
+    if (r3v >= 0x10000) {
+      b5 = *(base + r3v + 5);
+    }
+    if ((++sn % 64) == 1) {
+      std::fprintf(stderr, "SPIN34 #%lu r3=%08X b5=%02X\n", sn, r3v, b5);
+    }
+    // TEST (reversible): synthesize the spin event, REPEATING. Post-gate
+    // the loop spins on 822F3640's return ([r3+5]); nothing ever sets it.
+    // Re-fire on cooldown while parked; watch for 822F2608 after each.
+    static long long wlast = 0;
+    static long long wt0 = 0;
+    if (wt0 == 0) {
+      wt0 = (long long)time(nullptr);
+    }
+    if (b5 == 0 && r3v >= 0x10000 &&
+        (long long)time(nullptr) - wt0 > 15 &&
+        (long long)time(nullptr) - wlast > 30) {
+      wlast = (long long)time(nullptr);
+      *(base + r3v + 5) = 1;
+      std::fprintf(stderr, "SPINSYNTH set %08X+5\n", r3v);
+    }
+  }
   probe_o_822F3640(ctx, base);
 }
 
@@ -1065,71 +1124,68 @@ extern "C" void sub_8221EB58(PPCContext& ctx, uint8_t* base) {
                  ctx.r4.u32);
   }
 }
-
-REX_IMPORT(__imp__sub_8236CC28, probe_o_8236CC28, void());
-extern "C" void sub_8236CC28(PPCContext& ctx, uint8_t* base) {
-  static unsigned n = 0;
-  bool log = n < 4;
-  if (log) {
-    ++n;
-    std::fprintf(stderr, "PROBE-CC28-ENTER\n");
-  }
-  probe_o_8236CC28(ctx, base);
-  if (log) {
-    std::fprintf(stderr, "PROBE-CC28-EXIT\n");
-  }
-}
-
 REX_IMPORT(__imp__sub_831FD318, probe_o_831FD318, void());
 extern "C" void sub_831FD318(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
-  bool log = n < 4;
+  bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V16-ENTER\n");
+    std::fprintf(stderr, "V16-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+                 (uint32_t)ctx.lr);
+  } else if ((uint32_t)ctx.lr == 0x823787F4) {
+    std::fprintf(stderr, "V16-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_831FD318(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V16-EXIT\n");
+    std::fprintf(stderr, "V16-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_82C43198, probe_o_82C43198, void());
 extern "C" void sub_82C43198(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
-  bool log = n < 4;
+  bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V20-ENTER\n");
+    std::fprintf(stderr, "V20-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+                 (uint32_t)ctx.lr);
+  } else if ((uint32_t)ctx.lr == 0x823787F4) {
+    std::fprintf(stderr, "V20-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_82C43198(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V20-EXIT\n");
+    std::fprintf(stderr, "V20-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_82378868, probe_o_82378868, void());
 extern "C" void sub_82378868(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
-  bool log = n < 4;
+  bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V24-ENTER\n");
+    std::fprintf(stderr, "V24-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+                 (uint32_t)ctx.lr);
+  } else if ((uint32_t)ctx.lr == 0x823787F4) {
+    std::fprintf(stderr, "V24-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_82378868(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V24-EXIT\n");
+    std::fprintf(stderr, "V24-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_829CE870, probe_o_829CE870, void());
 extern "C" void sub_829CE870(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
-  bool log = n < 4;
+  bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V28-ENTER\n");
+    std::fprintf(stderr, "V28-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+                 (uint32_t)ctx.lr);
+  } else if ((uint32_t)ctx.lr == 0x823787F4) {
+    std::fprintf(stderr, "V28-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_829CE870(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V28-EXIT\n");
+    std::fprintf(stderr, "V28-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 
@@ -1452,3 +1508,53 @@ extern "C" void sub_82CBB788(PPCContext& ctx, uint8_t* base) {
     std::fprintf(stderr, "PROBE-HIT 82CBB788-EXIT returned\n");
   }
 }
+
+// TEST: drain-wait exit gate. `823784A0`'s loop (0x823787FC) exits when
+// the virtual [[0x8349E6EC]+16] returns low-byte 0; runtime resolution
+// (GATETGT) gives target `82185418`. First-8 + gate-site always-log.
+REX_IMPORT(__imp__sub_82185418, probe_o_82185418, void());
+extern "C" void sub_82185418(PPCContext& ctx, uint8_t* base) {
+  static unsigned n = 0;
+  ++n;
+  uint32_t lr = (uint32_t)ctx.lr;
+  if (n <= 8) {
+    std::fprintf(stderr, "GATE16-ENTER #%u r3=%08X lr=%08X\n", n,
+                 ctx.r3.u32, lr);
+  } else if (lr == 0x823787F4) {
+    std::fprintf(stderr, "GATE16-GATE r3=%08X\n", ctx.r3.u32);
+  }
+  probe_o_82185418(ctx, base);
+  if (n <= 8) {
+    std::fprintf(stderr, "GATE16-EXIT #%u ret=%08X\n", n, ctx.r3.u32);
+  } else if (lr == 0x823787F4) {
+    std::fprintf(stderr, "GATE16-GATE-RET ret=%08X\n", ctx.r3.u32);
+  }
+}
+
+// TEST: gate-object family. The drain-wait gate object (vtable
+// 0x82002838, instance 0x4011F250) waits on [+44]!=0. Its vtable
+// siblings may touch the object (r3==gateobj?) or produce the event.
+// First-hit lr-logging + passthrough only.
+#define GATEFAM(addr) \
+  REX_IMPORT(__imp__sub_##addr, probe_o_##addr, void()); \
+  extern "C" void sub_##addr(PPCContext& ctx, uint8_t* base) { \
+    static bool logged = false; \
+    if (!logged) { \
+      logged = true; \
+      std::fprintf(stderr, "PROBE-HIT " #addr " gatefam r3=%08X lr=%08X\n", \
+                   ctx.r3.u32, (uint32_t)ctx.lr); \
+    } \
+    probe_o_##addr(ctx, base); \
+  }
+GATEFAM(82A14BE8)
+GATEFAM(82A14CA0)
+GATEFAM(82A14E20)
+GATEFAM(82A14C48)
+GATEFAM(82A14E10)
+GATEFAM(822C1BC8)
+GATEFAM(822CEEF8)
+GATEFAM(82172ED0)
+GATEFAM(821CCB20)
+GATEFAM(821961A0)
+GATEFAM(8236D0A8)
+GATEFAM(8229A9D8)

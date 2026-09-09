@@ -953,3 +953,34 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   -> `82CA97B8` continuation. If `82CA97B8` hits land after
   populate-EXIT, the branch runs post-populate and its LRs give the
   next frontier toward menu/title.
+
+## Probe volume regression 2026-09-09 ~23:03
+
+- The 600 s headless run showed one verdict and no populate. Prime
+  suspect is NOT game state but MY uncapped logging: `829FF648`-POP
+  every call (hot `824EF2F4` loop, hundreds/s), `VTAIL` 4 lines/call,
+  `VTABLE+0` every `5718` call — stderr volume I/O-stalls the boot.
+- Throttled: `seq-step` every 64th, `VTABLE+0` first 2 `5718` calls,
+  `VTAIL` first 2 `6698` calls + always the populate-tail call
+  (lr=`822F26C4`). Tail-site `829FF648-TAIL` logging kept (rare).
+- GDB watchpoint side-note: flag `[0x42205148]` 0->1 writer is
+  XrnmThread via `824E3350 <- 82CA3388 <- 82CA3430 <- 82CCA400`
+  (HYPOTHESIS: producer-side set; the drain consumer's clear is the
+  unobserved half). GDB timing also reproduces a 3D-only SIGSEGV at
+  `821E27C8:1049` (`8236C360` chain) absent from normal runs.
+
+## Self-driving drain 2026-09-10 ~01:21 (repeating synths)
+
+- One-shots exhausted after the first drain item (sequential items reuse
+  the same slots). All three synths now repeat on cooldown (flag 90 s,
+  gate 120 s, spin 120 s). The machine grinds items unattended:
+  SPINSYNTH -> VIRTRET -> populate-branch observed; cycle 2 in flight.
+- Post-loop spin scale: 135M `822F3640@78834` iterations (b5=00) before
+  the spin synth — tight busy-spin (sleep skipped), ~225k/s. Harmless
+  but log-heavy (2M+ lines/run; greps slowing).
+- Correction: V16 (831FD318) was NEVER the wait-loop gate (no
+  lr=823787F4 calls); the gate is 82185418 ([0x8349E6EC]+16, zero-test
+  on [obj+44]). V16/V20/V24/V28 lr-filters stay as traffic markers.
+- Cycle-1 note: flag+gate opened WITHOUT synth (not always stuck);
+  the spin byte ([drainctx+5]) is the consistent blocker. SPINSYNTH
+  sets it; VIRTRET follows; 0 faults.
