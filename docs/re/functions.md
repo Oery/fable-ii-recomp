@@ -324,3 +324,14 @@ The original instruction bytes and execution behavior are preserved; changes are
   `0x83496BCB` and branches.
 - Neighbor wrapper `829FF6D0`: acquire-side (atomic inc, vtable+60
   gating on return==3), re-calls `829FF648` at `+0xA8`, `bl 83229940`.
+
+## Sequencer branch map 2026-09-10 (scout disasm, CONFIRMED)
+- `822EA8C0` is its OWN straight-line function (blr@822EA924), NOT
+  containing the populate sites. Its tail calls: 82CBB570, 821E6388,
+  82CA34B0, 82196C58, 82CBBF60. No sleep/lock/drain/populate inside.
+- Populate sites live in NEXT function `822EA928` (verdict-gated):
+  verdict call at 822EAA44; AA54 beq: !=0 -> drain path (AA58 drain
+  `822F47F8`, AA60 quit-setter, AA70 stw r28=0, AA74 populate);
+  ==0 -> AA80 (stw 1) -> AA8C populate. No skips, no loops, no
+  sleep/lock bls between; populate runs unconditionally once the
+  verdict returns (barring a non-returning callee = the drain loop).

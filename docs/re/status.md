@@ -984,3 +984,13 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
 - Cycle-1 note: flag+gate opened WITHOUT synth (not always stuck);
   the spin byte ([drainctx+5]) is the consistent blocker. SPINSYNTH
   sets it; VIRTRET follows; 0 faults.
+## Stop point 2026-09-10 ~01:45 (resume: grind drain cycles headless)
+- State: repeating synths (flag/gate/spin, 30 s cooldowns) grind drain
+  items unattended (VIRTRET per item, 0 faults). Sequencer map proves
+  populate is unconditional once the verdict path returns; GameThread
+  parks only inside callees (the drain loop). Just needs more cycles.
+- Next: long headless run (1200 s+), watch for populate-dispatch #n,
+  then 82CA97B8/menu-leg probes, then visible title check.
+- Do NOT re-add: DRAINVIRT force (skips intro), pool retry, 3D gate.
+- SDK patch (keep-open, in binary via game rebuild) + tracked diff in
+  docs/re/patches/sdk-keep-open.patch.
