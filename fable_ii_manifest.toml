@@ -87,6 +87,26 @@ end = 0x829FCB00
  [entrypoint.functions.829FCB00]
  end = 0x829FCBA4
 
+# Trivial getter (lis/lwz/blr). Evidence: FATAL at 0x822142D0 2026-09-10
+# during visible title run.
+[entrypoint.functions.822142D0]
+end = 0x822142DC
+
+# Tiny global getter (lis/addi/blr). Evidence: FATAL at 0x82267C88
+# 2026-09-10 during visible new-game run.
+[entrypoint.functions.82267C88]
+end = 0x82267C94
+
+# Tiny global getter (lis/addi/blr). Evidence: FATAL at 0x82E8F9E8
+# 2026-09-10 during visible new-game run.
+[entrypoint.functions.82E8F9E8]
+end = 0x82E8F9F4
+
+# Tiny global getter (lis/addi/blr). Evidence: FATAL at 0x82267568
+# 2026-09-10 during quiet visible run.
+[entrypoint.functions.82267568]
+end = 0x82267574
+
 # Virtual-dispatch thunk (vtable slot, offset28). Evidence: FATAL call to
 # 0x82C0B400 2026-09-10; 9-insn lwz/mtctr/bctrl+blr, end 0x82C0B424.
 [entrypoint.functions.82C0B400]

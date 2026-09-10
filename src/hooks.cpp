@@ -33,6 +33,11 @@ extern "C" void sub_832AF210(PPCContext& ctx, uint8_t* base) {
 #include <cstdio>
 #include <mutex>
 #include <rex/hook.h>
+#include "fable_ii_pch.h"
+// PERF (2026-09-10): silence every diagnostic probe in this TU. All
+// fprintf here is logging; SDK uses spdlog. Keeps: resume-jump logic,
+// thunk chains (no logging in them). One line, fully reversible.
+#define PROBE_LOG(...) ((void)0)
 // 2026-09-10: plain mutex self-deadlocks on 82BCA340 -> 82BC9E10 reentrancy
 // (Permanent Bank stuck, GDB-proven) — BUT any reentrant-capable form
 // (none, recursive) lets Permanent Bank complete a path after which the 3D
@@ -52,7 +57,7 @@ extern "C" void sub_8236C940(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 8236C940 populate-caller\n");
+    PROBE_LOG(stderr, "PROBE-HIT 8236C940 populate-caller\n");
   }
   probe_orig_8236C940(ctx, base);
 }
@@ -61,13 +66,13 @@ extern "C" void sub_82A47D48(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82A47D48 G4-populate\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82A47D48 G4-populate\n");
   }
   probe_orig_82A47D48(ctx, base);
   static bool done = false;
   if (!done) {
     done = true;
-    std::fprintf(stderr, "PROBE-HIT 82A47D48-EXIT returned\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82A47D48-EXIT returned\n");
   }
 }
 REX_IMPORT(__imp__sub_82AA8AD0, probe_o_82AA8AD0, void());
@@ -75,7 +80,7 @@ extern "C" void sub_82AA8AD0(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82AA8AD0 G4-sub\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82AA8AD0 G4-sub\n");
   }
   probe_o_82AA8AD0(ctx, base);
 }
@@ -84,7 +89,7 @@ extern "C" void sub_82CBB620(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82CBB620 G4-sub2\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82CBB620 G4-sub2\n");
   }
   probe_o_82CBB620(ctx, base);
 }
@@ -93,7 +98,7 @@ extern "C" void sub_822EA928(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 822EA928 park-sequencer\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822EA928 park-sequencer\n");
   }
   probe_orig_822EA928(ctx, base);
 }
@@ -102,7 +107,7 @@ extern "C" void sub_822F4690(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 822F4690 quit-setter\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822F4690 quit-setter\n");
   }
   probe_orig_822F4690(ctx, base);
 }
@@ -122,7 +127,7 @@ extern "C" void sub_82200688(PPCContext& ctx, uint8_t* base) {
     }
     if (!known) {
       seen[npair++] = gid;
-      std::fprintf(stderr, "THREADMAP gid=%08X lwp=%d\n", gid, gettid());
+      PROBE_LOG(stderr, "THREADMAP gid=%08X lwp=%d\n", gid, gettid());
     }
   }
   // REMOVED 2026-09-09: the 3D gate (blocked lr==0x8236C588 until
@@ -150,7 +155,7 @@ extern "C" void sub_82200688(PPCContext& ctx, uint8_t* base) {
         klk = lk;
         klc = lc;
         kow = ow;
-        std::fprintf(stderr, "LOCKW lr=%08X lock=%08X count=%d owner=%08X\n",
+        PROBE_LOG(stderr, "LOCKW lr=%08X lock=%08X count=%d owner=%08X\n",
                      lr, lk, lc, ow);
       }
     }
@@ -168,7 +173,7 @@ extern "C" void sub_82200688(PPCContext& ctx, uint8_t* base) {
         std::memcpy(&beow, base + lk + 0x18, 4);
         ow = __builtin_bswap32(beow);
       }
-      std::fprintf(stderr, "GT2-ENTER lr=%08X lock=%08X count=%d owner=%08X\n",
+      PROBE_LOG(stderr, "GT2-ENTER lr=%08X lock=%08X count=%d owner=%08X\n",
                    lr, lk, lc, ow);
     }
   }
@@ -177,7 +182,7 @@ extern "C" void sub_82200688(PPCContext& ctx, uint8_t* base) {
     static unsigned ngt2x = 0;
     if (ngt2x < 8) {
       ++ngt2x;
-      std::fprintf(stderr, "GT2-EXIT lr=%08X\n", lr);
+      PROBE_LOG(stderr, "GT2-EXIT lr=%08X\n", lr);
     }
   }
 }
@@ -200,7 +205,7 @@ extern "C" void sub_82CC1990(PPCContext& ctx, uint8_t* base) {
     std::memset(base + node, 0, 32);
     uint32_t be = __builtin_bswap32(node);
     std::memcpy(base + 0x8349F554, &be, 4);
-    std::fprintf(stderr, "PRESEED-G4 node=%08X\n", node);
+    PROBE_LOG(stderr, "PRESEED-G4 node=%08X\n", node);
   }
   PPCContext saved2 = ctx;
   uint32_t node2 = probe_alloc32(ctx, base, 32);
@@ -215,7 +220,7 @@ extern "C" void sub_82CC1990(PPCContext& ctx, uint8_t* base) {
     std::memcpy(base + node2 + 4, &be2, 4);
     std::memcpy(base + node2 + 8, &be2, 4);
     std::memcpy(base + 0x8349F7CC, &be2, 4);
-    std::fprintf(stderr, "PRESEED-7CC node=%08X\n", node2);
+    PROBE_LOG(stderr, "PRESEED-7CC node=%08X\n", node2);
   }
 
   PPCContext saved3 = ctx;
@@ -229,7 +234,7 @@ extern "C" void sub_82CC1990(PPCContext& ctx, uint8_t* base) {
     std::memcpy(base + node3 + 4, &be3, 4);
     std::memcpy(base + node3 + 8, &be3, 4);
     std::memcpy(base + 0x8349F7B4, &be3, 4);
-    std::fprintf(stderr, "PRESEED-7B4 node=%08X\n", node3);
+    PROBE_LOG(stderr, "PRESEED-7B4 node=%08X\n", node3);
   }
 }
 
@@ -283,11 +288,11 @@ extern "C" void sub_8227BB58(PPCContext& ctx, uint8_t* base) {
   static uint32_t last_lr = 0;
   if (lr != last_lr) {
     last_lr = lr;
-    std::fprintf(stderr, "PROBE-7BB58-CALLER lr=%08X r28=%08X tgt=%08X\n", lr,
+    PROBE_LOG(stderr, "PROBE-7BB58-CALLER lr=%08X r28=%08X tgt=%08X\n", lr,
                  r28, tgt);
   }
   if (n < 12) {
-    std::fprintf(stderr, "PROBE-7BB58 r28=%08X r31=%08X tgt=%08X\n", r28, r31,
+    PROBE_LOG(stderr, "PROBE-7BB58 r28=%08X r31=%08X tgt=%08X\n", r28, r31,
                  tgt);
     ++n;
   }
@@ -301,7 +306,7 @@ extern "C" void sub_8227BB58(PPCContext& ctx, uint8_t* base) {
       static bool logged = false;
       if (!logged) {
         logged = true;
-        std::fprintf(stderr, "PASS-NULL 8227BB58\n");
+        PROBE_LOG(stderr, "PASS-NULL 8227BB58\n");
       }
     }
     return;
@@ -321,7 +326,7 @@ extern "C" void sub_8227BB58(PPCContext& ctx, uint8_t* base) {
 REX_IMPORT(__imp__sub_822F2608, probe_o_822F2608, void());
 extern "C" void sub_822F2608(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
-  std::fprintf(stderr, "PROBE-HIT 822F2608 populate-dispatch #%u lr=%08X\n",
+  PROBE_LOG(stderr, "PROBE-HIT 822F2608 populate-dispatch #%u lr=%08X\n",
                ++n, (uint32_t)ctx.lr);
   probe_o_822F2608(ctx, base);
 }
@@ -331,13 +336,13 @@ REX_IMPORT(__imp__sub_822EA8C0, probe_o_822EA8C0, void());
 extern "C" void sub_822EA8C0(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   if (++n <= 4) {
-    std::fprintf(stderr, "PROBE-HIT 822EA8C0-ENTER #%u lr=%08X r3=%08X\n",
+    PROBE_LOG(stderr, "PROBE-HIT 822EA8C0-ENTER #%u lr=%08X r3=%08X\n",
                  n, (uint32_t)ctx.lr, ctx.r3.u32);
   }
   probe_o_822EA8C0(ctx, base);
   static unsigned nx = 0;
   if (++nx <= 4) {
-    std::fprintf(stderr, "PROBE-HIT 822EA8C0-EXIT #%u\n", nx);
+    PROBE_LOG(stderr, "PROBE-HIT 822EA8C0-EXIT #%u\n", nx);
   }
 }
 REX_IMPORT(__imp__sub_82378BB8, probe_o_82378BB8, void());
@@ -345,7 +350,7 @@ extern "C" void sub_82378BB8(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82378BB8 populate-branch\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82378BB8 populate-branch\n");
   }
   probe_o_82378BB8(ctx, base);
 }
@@ -357,7 +362,7 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82B67950 streamer-poll\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82B67950 streamer-poll\n");
   }
   if (drain_flag_addr >= 0x10000) {
     static uint8_t last = 0xFF;
@@ -369,7 +374,7 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
     }
     if (++n == 1 || cur != last) {
       last = cur;
-      std::fprintf(stderr, "FLAGWATCH %02X\n", cur);
+      PROBE_LOG(stderr, "FLAGWATCH %02X\n", cur);
     }
     // Drain-wait exit gate byte ([gateobj+44], zero-tested by 82185418):
     // change-logged; the drain exits only when this reaches 0.
@@ -379,7 +384,7 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
       uint8_t gcur = *(base + gate_byte_addr);
       if (++gn == 1 || gcur != glast) {
         glast = gcur;
-        std::fprintf(stderr, "GATEWATCH %02X\n", gcur);
+        PROBE_LOG(stderr, "GATEWATCH %02X\n", gcur);
       }
     }
     // REPEATING SYNTH OFF 2026-09-10: trace-only mode. Forcing completion
@@ -399,7 +404,7 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
       if (drain_item_addr >= 0x10000) {
         *(base + drain_item_addr + 0x88) = 0;
       }
-      std::fprintf(stderr, "FLAGSYNTH cleared %08X item=%08X\n",
+      PROBE_LOG(stderr, "FLAGSYNTH cleared %08X item=%08X\n",
                    drain_flag_addr, drain_item_addr);
     }
     static long long lastgate = 0;
@@ -408,7 +413,7 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
         (long long)time(nullptr) - lastgate > 30) {
       lastgate = (long long)time(nullptr);
       *(base + gate_byte_addr) = 1;
-      std::fprintf(stderr, "GATESYNTH set %08X\n", gate_byte_addr);
+      PROBE_LOG(stderr, "GATESYNTH set %08X\n", gate_byte_addr);
     }
 #endif
   }
@@ -419,23 +424,23 @@ extern "C" void sub_8236C360(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 8236C360 3d-proc\n");
+    PROBE_LOG(stderr, "PROBE-HIT 8236C360 3d-proc\n");
   }
   uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
   if (gid == 0x3009C018) {
-    std::fprintf(stderr, "3DPROC-WORKER lr=%08X r3=%08X\n", (uint32_t)ctx.lr,
+    PROBE_LOG(stderr, "3DPROC-WORKER lr=%08X r3=%08X\n", (uint32_t)ctx.lr,
                  ctx.r3.u32);
   }
   probe_o_8236C360(ctx, base);
   if (gid == 0x3009C018) {
-    std::fprintf(stderr, "3DPROC-WORKER-EXIT ret=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "3DPROC-WORKER-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_822F33B8, probe_o_822F33B8, void());
 extern "C" void sub_822F33B8(PPCContext& ctx, uint8_t* base) {
   static int n = 0;
   int mine = ++n;
-  std::fprintf(stderr, "PROBE-HIT 822F33B8 bank-proc #%d lr=%08X\n", mine,
+  PROBE_LOG(stderr, "PROBE-HIT 822F33B8 bank-proc #%d lr=%08X\n", mine,
                (uint32_t)ctx.lr);
   probe_o_822F33B8(ctx, base);
   // If the bank job ever returns, its return + the spin byte reveal whether
@@ -450,7 +455,7 @@ extern "C" void sub_822F33B8(PPCContext& ctx, uint8_t* base) {
       b5 = *(base + dc + 5);
     }
   }
-  std::fprintf(stderr, "BANKPROC-EXIT #%d ret=%08X b5=%02X\n", mine,
+  PROBE_LOG(stderr, "BANKPROC-EXIT #%d ret=%08X b5=%02X\n", mine,
                ctx.r3.u32, b5);
 }
 
@@ -473,26 +478,26 @@ extern "C" void sub_822F47F8(PPCContext& ctx, uint8_t* base) {
         }
       }
     }
-    std::fprintf(stderr, "DRAIN-ITEM ctx=%08X item=%08X vt=%08X t12=%08X\n", c,
+    PROBE_LOG(stderr, "DRAIN-ITEM ctx=%08X item=%08X vt=%08X t12=%08X\n", c,
                  i0, vt, t12);
   }
-  std::fprintf(stderr, "PROBE-47F8-ENTER\n");
+  PROBE_LOG(stderr, "PROBE-47F8-ENTER\n");
   probe_o_822F47F8(ctx, base);
   gt_drain_done.store(true);
-  std::fprintf(stderr, "PROBE-47F8-EXIT\n");
+  PROBE_LOG(stderr, "PROBE-47F8-EXIT\n");
 }
 REX_IMPORT(__imp__sub_823781A8, probe_o_823781A8, void());
 extern "C" void sub_823781A8(PPCContext& ctx, uint8_t* base) {
-  std::fprintf(stderr, "PROBE-781A8-ENTER\n");
+  PROBE_LOG(stderr, "PROBE-781A8-ENTER\n");
   probe_o_823781A8(ctx, base);
-  std::fprintf(stderr, "PROBE-781A8-EXIT\n");
+  PROBE_LOG(stderr, "PROBE-781A8-EXIT\n");
 }
 
 REX_IMPORT(__imp__sub_822F5540, probe_o_822F5540, void());
 extern "C" void sub_822F5540(PPCContext& ctx, uint8_t* base) {
-  std::fprintf(stderr, "PROBE-5540-ENTER\n");
+  PROBE_LOG(stderr, "PROBE-5540-ENTER\n");
   probe_o_822F5540(ctx, base);
-  std::fprintf(stderr, "PROBE-5540-EXIT\n");
+  PROBE_LOG(stderr, "PROBE-5540-EXIT\n");
 }
 
 REX_IMPORT(__imp__sub_82CBC6B0, probe_o_82CBC6B0, void());
@@ -506,7 +511,7 @@ extern "C" void sub_82CBC6B0(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   if (n < 10) {
     ++n;
-    std::fprintf(stderr, "SLEEPBYPASS arg=%u lr=%08X\n", ctx.r3.u32, lr);
+    PROBE_LOG(stderr, "SLEEPBYPASS arg=%u lr=%08X\n", ctx.r3.u32, lr);
   }
   // REVERTED 2026-09-10: the null-object path natively performs one 100 ms
   // ALERTABLE KeDelayExecutionThread then returns (r30 comes from the
@@ -519,7 +524,7 @@ extern "C" void sub_82CBC6B0(PPCContext& ctx, uint8_t* base) {
     static bool logged = false;
     if (!logged) {
       logged = true;
-      std::fprintf(stderr, "SKIP-GTSLEEP\n");
+      PROBE_LOG(stderr, "SKIP-GTSLEEP\n");
     }
     ctx.r3.u32 = 0;
     return;
@@ -540,12 +545,12 @@ extern "C" void sub_829FF648(PPCContext& ctx, uint8_t* base) {
                  (lr == 0x822F2690) || (lr == 0x822F26BC);
   static unsigned nlr = 0;
   if (is_tail) {
-    std::fprintf(stderr, "PROBE-HIT 829FF648-TAIL #%u lr=%08X\n", n, lr);
+    PROBE_LOG(stderr, "PROBE-HIT 829FF648-TAIL #%u lr=%08X\n", n, lr);
   } else if (nlr < 12) {
     ++nlr;
-    std::fprintf(stderr, "PROBE-HIT 829FF648 #%u lr=%08X\n", n, lr);
+    PROBE_LOG(stderr, "PROBE-HIT 829FF648 #%u lr=%08X\n", n, lr);
   } else if ((n % 64) == 1) {
-    std::fprintf(stderr, "PROBE-HIT 829FF648 seq-step #%u\n", n);
+    PROBE_LOG(stderr, "PROBE-HIT 829FF648 seq-step #%u\n", n);
 }
   probe_o_829FF648(ctx, base);
 }
@@ -553,7 +558,7 @@ REX_IMPORT(__imp__sub_822F5718, probe_o_822F5718, void());
 extern "C" void sub_822F5718(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   if ((++n % 4) == 1) {
-    std::fprintf(stderr, "PROBE-HIT 822F5718 poptail #%u\n", n);
+    PROBE_LOG(stderr, "PROBE-HIT 822F5718 poptail #%u\n", n);
   }
   // r3 entry = r31+108 of `822F2608`; resolve its post-5718 vtable+0
   // target ([r31+80]->[0]->[vtable+0]) for the stall at `822F269C`.
@@ -578,13 +583,13 @@ extern "C" void sub_822F5718(PPCContext& ctx, uint8_t* base) {
     }
   }
   if (n <= 2) {
-    std::fprintf(stderr, "VTABLE+0 #%u slot=%08X obj=%08X vt=%08X tgt=%08X\n",
+    PROBE_LOG(stderr, "VTABLE+0 #%u slot=%08X obj=%08X vt=%08X tgt=%08X\n",
                  n, slot, obj, vt, tgt);
   }
   static bool done = false;
   if (!done) {
     done = true;
-    std::fprintf(stderr, "PROBE-HIT 822F5718-EXIT returned\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822F5718-EXIT returned\n");
   }
 }
 REX_IMPORT(__imp__sub_822F71A8, probe_o_822F71A8, void());
@@ -592,13 +597,13 @@ extern "C" void sub_822F71A8(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 822F71A8 poptail-sub\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822F71A8 poptail-sub\n");
   }
   probe_o_822F71A8(ctx, base);
   static bool done = false;
   if (!done) {
     done = true;
-    std::fprintf(stderr, "PROBE-HIT 822F71A8-EXIT returned\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822F71A8-EXIT returned\n");
   }
 }
 REX_IMPORT(__imp__sub_83231BE8, probe_o_83231BE8, void());
@@ -606,20 +611,20 @@ extern "C" void sub_83231BE8(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 83231BE8 refcheck\n");
+    PROBE_LOG(stderr, "PROBE-HIT 83231BE8 refcheck\n");
   }
   probe_o_83231BE8(ctx, base);
   static bool done = false;
   if (!done) {
     done = true;
-    std::fprintf(stderr, "PROBE-HIT 83231BE8-EXIT returned\n");
+    PROBE_LOG(stderr, "PROBE-HIT 83231BE8-EXIT returned\n");
   }
 }
 REX_IMPORT(__imp__sub_82356698, probe_o_82356698, void());
 extern "C" void sub_82356698(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   if ((++n % 2) == 1) {
-    std::fprintf(stderr, "PROBE-HIT 82356698 poptail2 #%u\n", n);
+    PROBE_LOG(stderr, "PROBE-HIT 82356698 poptail2 #%u\n", n);
   }
   probe_o_82356698(ctx, base);
   static unsigned nx = 0;
@@ -630,7 +635,7 @@ extern "C" void sub_82356698(PPCContext& ctx, uint8_t* base) {
   uint32_t r31 = ctx.r3.u32 - 56;
   uint32_t chain[4] = {48, 44, 40, 36};
   uint32_t off[4] = {8, 8, 0, 0};
-  std::fprintf(stderr, "PROBE-HIT 82356698-EXIT #%u lr=%08X\n", ++nx, exlr);
+  PROBE_LOG(stderr, "PROBE-HIT 82356698-EXIT #%u lr=%08X\n", ++nx, exlr);
   if (nx > 2 && exlr != 0x822F26C4) {
     return;
   }
@@ -652,7 +657,7 @@ extern "C" void sub_82356698(PPCContext& ctx, uint8_t* base) {
         }
       }
     }
-    std::fprintf(stderr, "VTAIL+%u off=%u slot=%08X obj=%08X vt=%08X tgt=%08X\n",
+    PROBE_LOG(stderr, "VTAIL+%u off=%u slot=%08X obj=%08X vt=%08X tgt=%08X\n",
                  chain[i], off[i], slot, obj, vt, tgt);
   }
 }
@@ -661,7 +666,7 @@ extern "C" void sub_8217E3F8(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 8217E3F8 seq-step\n");
+    PROBE_LOG(stderr, "PROBE-HIT 8217E3F8 seq-step\n");
   }
   probe_o_8217E3F8(ctx, base);
 }
@@ -670,7 +675,7 @@ extern "C" void sub_822EB0C8(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 822EB0C8 seq-step\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822EB0C8 seq-step\n");
   }
   probe_o_822EB0C8(ctx, base);
 }
@@ -679,7 +684,7 @@ extern "C" void sub_822F2518(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 822F2518 seq-step\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822F2518 seq-step\n");
   }
   probe_o_822F2518(ctx, base);
 }
@@ -689,7 +694,7 @@ extern "C" void sub_82B68F60(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82B68F60 postlock\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82B68F60 postlock\n");
   }
   probe_o_82B68F60(ctx, base);
 }
@@ -698,7 +703,7 @@ extern "C" void sub_8236C9F8(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 8236C9F8 postlock\n");
+    PROBE_LOG(stderr, "PROBE-HIT 8236C9F8 postlock\n");
   }
   probe_o_8236C9F8(ctx, base);
 }
@@ -708,7 +713,7 @@ extern "C" void sub_822F0518(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 822F0518 deep\n");
+    PROBE_LOG(stderr, "PROBE-HIT 822F0518 deep\n");
   }
   probe_o_822F0518(ctx, base);
 }
@@ -717,7 +722,7 @@ extern "C" void sub_82309F00(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82309F00 deep\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82309F00 deep\n");
   }
   probe_o_82309F00(ctx, base);
 }
@@ -726,7 +731,7 @@ extern "C" void sub_825BB2C0(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 825BB2C0 deep\n");
+    PROBE_LOG(stderr, "PROBE-HIT 825BB2C0 deep\n");
   }
   probe_o_825BB2C0(ctx, base);
 }
@@ -735,7 +740,7 @@ extern "C" void sub_8217DA50(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 8217DA50 deep\n");
+    PROBE_LOG(stderr, "PROBE-HIT 8217DA50 deep\n");
   }
   probe_o_8217DA50(ctx, base);
 }
@@ -755,21 +760,21 @@ extern "C" void sub_822F27C0(PPCContext& ctx, uint8_t* base) {
   // BISECT 2026-09-09: synthesis OFF (was: force first verdict==1 to 0).
   // The intro stopped playing; the drain loop may contain intro items.
   // Pure reporter until the bisect resolves.
-  std::fprintf(stderr, "DRAIN-VERDICT %u\n", v);
+  PROBE_LOG(stderr, "DRAIN-VERDICT %u\n", v);
 }
 
 REX_IMPORT(__imp__sub_8236CC90, probe_o_8236CC90, void());
 extern "C" void sub_8236CC90(PPCContext& ctx, uint8_t* base) {
-  std::fprintf(stderr, "PROBE-CC90-ENTER\n");
+  PROBE_LOG(stderr, "PROBE-CC90-ENTER\n");
   probe_o_8236CC90(ctx, base);
-  std::fprintf(stderr, "PROBE-CC90-EXIT\n");
+  PROBE_LOG(stderr, "PROBE-CC90-EXIT\n");
 }
 REX_IMPORT(__imp__sub_8236CA90, probe_o_8236CA90, void());
 extern "C" void sub_8236CA90(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 8236CA90 flagwait\n");
+    PROBE_LOG(stderr, "PROBE-HIT 8236CA90 flagwait\n");
   }
   probe_o_8236CA90(ctx, base);
 }
@@ -784,7 +789,7 @@ extern "C" void sub_8221F388(PPCContext& ctx, uint8_t* base) {
   auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - t0);
   if (dt.count() > 20) {
-    std::fprintf(stderr, "SLOWALLOC size=%u ms=%lld lr=%08X out=%08X\n", sz,
+    PROBE_LOG(stderr, "SLOWALLOC size=%u ms=%lld lr=%08X out=%08X\n", sz,
                  (long long)dt.count(), lr, ctx.r3.u32);
   }
 }
@@ -838,7 +843,7 @@ extern "C" void sub_8240DAA8(PPCContext& ctx, uint8_t* base) {
   }
   if (key != last) {
     last = key;
-    std::fprintf(stderr, "POOL-STATE pool=%08X f0=%08X f4=%08X slot=%08X head=%08X next=%08X b16=%08X chunks=%08X size=%u\n",
+    PROBE_LOG(stderr, "POOL-STATE pool=%08X f0=%08X f4=%08X slot=%08X head=%08X next=%08X b16=%08X chunks=%08X size=%u\n",
                  pool, f0, f4, slot, shead, hnext, b16, schunk, r31);
   }
   probe_o_8240DAA8(ctx, base);
@@ -851,7 +856,7 @@ extern "C" void sub_8240DAA8(PPCContext& ctx, uint8_t* base) {
   if ((out >= 0x82000000 && out < 0x83000000 && out != lastout) ||
       out < 0x10000) {
     lastout = out;
-    std::fprintf(stderr, "ALLOC-RET 8240DAA8 size=%u out=%08X\n", r31, out);
+    PROBE_LOG(stderr, "ALLOC-RET 8240DAA8 size=%u out=%08X\n", r31, out);
   }
 }
 REX_IMPORT(__imp__sub_823052C0, probe_o_823052C0, void());
@@ -860,7 +865,7 @@ extern "C" void sub_823052C0(PPCContext& ctx, uint8_t* base) {
   uint32_t gaddr = (uint32_t)((int32_t)-2092367872 + 27088);
   uint32_t be = 0;
   std::memcpy(&be, base + gaddr, 4);
-  std::fprintf(stderr, "POOL-GLOBAL addr=%08X val=%08X\n", gaddr,
+  PROBE_LOG(stderr, "POOL-GLOBAL addr=%08X val=%08X\n", gaddr,
                __builtin_bswap32(be));
 }
 
@@ -885,18 +890,18 @@ extern "C" void sub_82BCD7B0(PPCContext& ctx, uint8_t* base) {
   static bool dumped = false;
   if (!dumped && r29 >= 0x10000 && r6 >= 0x10000) {
     dumped = true;
-    std::fprintf(stderr, "BANK-DUMP r29=%08X r6=%08X\n", r29, r6);
+    PROBE_LOG(stderr, "BANK-DUMP r29=%08X r6=%08X\n", r29, r6);
     for (int off = 0; off < 64; off += 16) {
       uint32_t w[4] = {0, 0, 0, 0};
       std::memcpy(w, base + r6 + off, 16);
-      std::fprintf(stderr, "  tbl+%02X: %08X %08X %08X %08X\n", off,
+      PROBE_LOG(stderr, "  tbl+%02X: %08X %08X %08X %08X\n", off,
                    __builtin_bswap32(w[0]), __builtin_bswap32(w[1]),
                    __builtin_bswap32(w[2]), __builtin_bswap32(w[3]));
     }
     for (int off = 0; off < 64; off += 16) {
       uint32_t w[4] = {0, 0, 0, 0};
       std::memcpy(w, base + r29 + off, 16);
-      std::fprintf(stderr, "  obj+%02X: %08X %08X %08X %08X\n", off,
+      PROBE_LOG(stderr, "  obj+%02X: %08X %08X %08X %08X\n", off,
                    __builtin_bswap32(w[0]), __builtin_bswap32(w[1]),
                    __builtin_bswap32(w[2]), __builtin_bswap32(w[3]));
     }
@@ -910,20 +915,20 @@ extern "C" void sub_82BCD7B0(PPCContext& ctx, uint8_t* base) {
              (r30 >= 0x82000000 && r30 < 0x83000000);
   if (bad && tgt != last) {
     last = tgt;
-    std::fprintf(stderr,
+    PROBE_LOG(stderr,
                  "BANK-TBL r29=%08X r30=%08X r6=%08X base=%08X cnt=%08X mask=%08X tgt=%08X\n",
                  r29, r30, r6, t0, cnt, mask, tgt);
   }
   if (r29 >= 0x10000 && r6 >= 0x10000 && r6 != seen_r6) {
     seen_r6 = r6;
-    std::fprintf(stderr, "BANK-TBL-SEEN r6=%08X base=%08X cnt=%08X\n", r6, t0,
+    PROBE_LOG(stderr, "BANK-TBL-SEEN r6=%08X base=%08X cnt=%08X\n", r6, t0,
                  cnt);
   }
   static uint32_t seen_key = 0;
   uint32_t key = r30 ^ (r30 >> 4);
   if (r29 >= 0x10000 && key != seen_key) {
     seen_key = key;
-    std::fprintf(stderr, "BANK-R30 r30=%08X r6=%08X r30+16=%08X\n", r30, r6,
+    PROBE_LOG(stderr, "BANK-R30 r30=%08X r6=%08X r30+16=%08X\n", r30, r6,
                  r30 + 16);
   }
 
@@ -954,12 +959,12 @@ static bool pathlog_seen(uint32_t gid, uint32_t* tab, unsigned n) {
     static uint32_t seen_out[8] = {0};                                        \
     bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);            \
     if (interesting || !pathlog_seen(gid, seen_in, 8)) {                      \
-      std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x##addr,     \
+      PROBE_LOG(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x##addr,     \
                    gid, (uint32_t)ctx.lr);                                    \
     }                                                                         \
     probe_o_##addr(ctx, base);                                                \
     if (interesting || !pathlog_seen(gid, seen_out, 8)) {                     \
-      std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x##addr,     \
+      PROBE_LOG(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x##addr,     \
                    gid, ctx.r3.u32);                                          \
     }                                                                         \
   }
@@ -979,7 +984,7 @@ extern "C" void sub_822C0568(PPCContext& ctx, uint8_t* base) {
   static uint32_t seen_out[8] = {0};
   bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
   if (interesting || !pathlog_seen(gid, seen_in, 8)) {
-    std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x822C0568,
+    PROBE_LOG(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x822C0568,
                  gid, (uint32_t)ctx.lr);
   }
   bool outer = !tls_resume_armed;
@@ -992,12 +997,12 @@ extern "C" void sub_822C0568(PPCContext& ctx, uint8_t* base) {
     probe_o_822C0568(ctx, base);
   } else {
     uint32_t gid2 = rex::system::XThread::GetCurrentThread()->guest_object();
-    std::fprintf(stderr, "RESUMED 822C0568 gid=%08X ret=%08X\n", gid2,
+    PROBE_LOG(stderr, "RESUMED 822C0568 gid=%08X ret=%08X\n", gid2,
                  ctx.r3.u32);
   }
   tls_resume_armed = false;
   if (interesting || !pathlog_seen(gid, seen_out, 8)) {
-    std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x822C0568,
+    PROBE_LOG(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x822C0568,
                  gid, ctx.r3.u32);
   }
 }
@@ -1009,12 +1014,12 @@ extern "C" void sub_822C05F8(PPCContext& ctx, uint8_t* base) {
   static uint32_t seen[8] = {0};
   bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
   if (interesting || !pathlog_seen(gid, seen, 8)) {
-    std::fprintf(stderr, "C05F8ENTER gid=%08X lr=%08X r3=%08X r4=%08X r5=%08X\n",
+    PROBE_LOG(stderr, "C05F8ENTER gid=%08X lr=%08X r3=%08X r4=%08X r5=%08X\n",
                  gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32);
   }
   probe_o_822C05F8(ctx, base);
   if (interesting) {
-    std::fprintf(stderr, "C05F8EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+    PROBE_LOG(stderr, "C05F8EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
   }
 }
 
@@ -1024,12 +1029,12 @@ extern "C" void sub_821E27C8(PPCContext& ctx, uint8_t* base) {
   static uint32_t seen[8] = {0};
   bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
   if (interesting || !pathlog_seen(gid, seen, 8)) {
-    std::fprintf(stderr, "STORMENTER gid=%08X lr=%08X r3=%08X r4=%08X\n",
+    PROBE_LOG(stderr, "STORMENTER gid=%08X lr=%08X r3=%08X r4=%08X\n",
                  gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32);
   }
   probe_o_821E27C8(ctx, base);
   if (interesting) {
-    std::fprintf(stderr, "STORMEXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+    PROBE_LOG(stderr, "STORMEXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
   }
 }
 
@@ -1040,14 +1045,14 @@ extern "C" void sub_8219EE00(PPCContext& ctx, uint8_t* base) {
   bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
   uint32_t r1in = ctx.r1.u32;
   if (interesting || !pathlog_seen(gid, seen, 8)) {
-    std::fprintf(stderr, "EE00ENTER gid=%08X lr=%08X r3=%08X r4=%08X\n",
+    PROBE_LOG(stderr, "EE00ENTER gid=%08X lr=%08X r3=%08X r4=%08X\n",
                  gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32);
   }
   probe_o_8219EE00(ctx, base);
   if (interesting) {
-    std::fprintf(stderr, "EE00EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+    PROBE_LOG(stderr, "EE00EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
     if (ctx.r1.u32 != r1in) {
-      std::fprintf(stderr, "R1PROPAGATE gid=%08X in=%08X out=%08X\n", gid,
+      PROBE_LOG(stderr, "R1PROPAGATE gid=%08X in=%08X out=%08X\n", gid,
                    r1in, ctx.r1.u32);
     }
   }
@@ -1072,12 +1077,12 @@ extern "C" void sub_8219F010(PPCContext& ctx, uint8_t* base) {
     uint32_t t1 = rd(r11 + 4);
     uint32_t t2 = rd(t1);
     uint32_t tgt = rd(t2 + 16);
-    std::fprintf(stderr, "F010ENTER gid=%08X lr=%08X r3=%08X r11=%08X bctr=%08X r1=%08X\n",
+    PROBE_LOG(stderr, "F010ENTER gid=%08X lr=%08X r3=%08X r11=%08X bctr=%08X r1=%08X\n",
                  gid, (uint32_t)ctx.lr, ctx.r3.u32, r11, tgt, ctx.r1.u32);
   }
   probe_o_8219F010(ctx, base);
   if (interesting && (ctx.r29.u32 != r29in || ctx.r1.u32 != r1in)) {
-    std::fprintf(stderr, "R29CLOBBER gid=%08X in=%08X out=%08X r1in=%08X r1out=%08X lr=%08X\n",
+    PROBE_LOG(stderr, "R29CLOBBER gid=%08X in=%08X out=%08X r1in=%08X r1out=%08X lr=%08X\n",
                  gid, r29in, ctx.r29.u32, r1in, ctx.r1.u32, (uint32_t)ctx.lr);
     void* bt[16];
     int nbt = backtrace(bt, 16);
@@ -1095,7 +1100,7 @@ extern "C" void sub_8219F010(PPCContext& ctx, uint8_t* base) {
     uint32_t r1in = ctx.r1.u32;                                               \
     probe_o_##addr(ctx, base);                                                \
     if (interesting && ctx.r1.u32 != r1in) {                                  \
-      std::fprintf(stderr, "R1LEAK %08X gid=%08X in=%08X out=%08X\n",         \
+      PROBE_LOG(stderr, "R1LEAK %08X gid=%08X in=%08X out=%08X\n",         \
                    0x##addr, gid, r1in, ctx.r1.u32);                          \
     }                                                                         \
   }
@@ -1120,10 +1125,7 @@ R1BAL_PROBE(82BCCB88)
 // TEST (2026-09-10, reversible): 82CA9260 is a context-restore whose blr
 // must transfer to the saved LR (822C05A8, inside an ancestor 822C0568
 // frame). Generated code C++-returns instead, running unreachable dispatcher
-// code with the resume-r1 -> cascade. Fix: run the body (restores regs),
-// then run the 822C05A8 resume inline and longjmp back to the ancestor
 // 822C0568 wrapper, abandoning the dead chain.
-#include "fable_ii_pch.h"
 REX_IMPORT(__imp__sub_82CA9260, probe_o_82CA9260, void());
 extern "C" void sub_82CA9260(PPCContext& ctx, uint8_t* base) {
   uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
@@ -1134,7 +1136,7 @@ extern "C" void sub_82CA9260(PPCContext& ctx, uint8_t* base) {
   bool interesting = (gid == 0x3009C018);
   if (tls_resume_armed && lrout == 0x822C05A8 && lrout != (uint32_t)lrin) {
     if (interesting) {
-      std::fprintf(stderr, "RESUMEJUMP gid=%08X r1=%08X\n", gid, ctx.r1.u32);
+      PROBE_LOG(stderr, "RESUMEJUMP gid=%08X r1=%08X\n", gid, ctx.r1.u32);
     }
     // --- resume at 822C05A8 (mirrors sub_822C0568 loc_822C05A8..blr) ---
     // cmpwi cr6,r3,0
@@ -1182,7 +1184,7 @@ extern "C" void sub_82CA9260(PPCContext& ctx, uint8_t* base) {
     longjmp(tls_resume_jb, 1);
   }
   if (interesting && ctx.r1.u32 != r1in) {
-    std::fprintf(stderr, "R1LEAK %08X gid=%08X in=%08X out=%08X\n",
+    PROBE_LOG(stderr, "R1LEAK %08X gid=%08X in=%08X out=%08X\n",
                  0x82CA9260, gid, r1in, ctx.r1.u32);
   }
 }
@@ -1215,9 +1217,9 @@ THUNK_CHAIN(829FCAE8, 829FCB00)
   extern "C" void sub_##addr(PPCContext& ctx, uint8_t* base) { \
     uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object(); \
     bool w = (gid == 0x3009C018); \
-    if (w) std::fprintf(stderr, "PARKIN %08X r1=%08X\n", 0x##addr, ctx.r1.u32); \
+    if (w) PROBE_LOG(stderr, "PARKIN %08X r1=%08X\n", 0x##addr, ctx.r1.u32); \
     probe_o_##addr(ctx, base); \
-    if (w) std::fprintf(stderr, "PARKOUT %08X\n", 0x##addr); \
+    if (w) PROBE_LOG(stderr, "PARKOUT %08X\n", 0x##addr); \
   }
 PARK_PROBE(82CA3700)
 PARK_PROBE(82366210)
@@ -1269,7 +1271,7 @@ extern "C" void __savegprlr_26(PPCContext& ctx, uint8_t* base) {
   if (interesting) {
     static unsigned long sq = 0;
     sr_push(r1, ctx.r29.u32, (uint32_t)ctx.lr);
-    std::fprintf(stderr, "SAVE26 #%lu gid=%08X r1=%08X r29=%08X lr=%08X s29=%08X slr=%08X depth=%u\n",
+    PROBE_LOG(stderr, "SAVE26 #%lu gid=%08X r1=%08X r29=%08X lr=%08X s29=%08X slr=%08X depth=%u\n",
                  ++sq, gid, r1, ctx.r29.u32, (uint32_t)ctx.lr,
                  srs_read64(ctx, base, r1, -32), srs_read(ctx, base, r1 - 8),
                  sr_depth);
@@ -1289,12 +1291,12 @@ extern "C" void __restgprlr_26(PPCContext& ctx, uint8_t* base) {
     const char* verdict = !ok ? "STACK-EMPTY"
                           : (er1 != r1 ? "R1-MISMATCH"
                                        : (s29 != er29 || slr != elr ? "SLOT-CHANGED" : "ok"));
-    std::fprintf(stderr, "REST26PRE #%lu gid=%08X r1=%08X s29=%08X slr=%08X exp-r1=%08X exp-r29=%08X exp-lr=%08X %s depth=%u\n",
+    PROBE_LOG(stderr, "REST26PRE #%lu gid=%08X r1=%08X s29=%08X slr=%08X exp-r1=%08X exp-r29=%08X exp-lr=%08X %s depth=%u\n",
                  ++rq, gid, r1, s29, slr, er1, er29, elr, verdict, sr_depth);
   }
   probe_o_rest26(ctx, base);
   if (interesting) {
-    std::fprintf(stderr, "REST26POST gid=%08X r29=%08X lr=%08X\n", gid,
+    PROBE_LOG(stderr, "REST26POST gid=%08X r29=%08X lr=%08X\n", gid,
                  ctx.r29.u32, (uint32_t)ctx.lr);
   }
 }
@@ -1325,12 +1327,12 @@ extern "C" void sub_822DF280(PPCContext& ctx, uint8_t* base) {
         }
       }
     }
-    std::fprintf(stderr, "F280ENTER gid=%08X lr=%08X r3=%08X r4=%08X l20=%08X l20d=%08X\n",
+    PROBE_LOG(stderr, "F280ENTER gid=%08X lr=%08X r3=%08X r4=%08X l20=%08X l20d=%08X\n",
                  gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32, l20, l20d);
   }
   probe_o_822DF280(ctx, base);
   if (interesting) {
-    std::fprintf(stderr, "F280EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+    PROBE_LOG(stderr, "F280EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
   }
 }
 
@@ -1347,20 +1349,20 @@ extern "C" void sub_8229A518(PPCContext& ctx, uint8_t* base) {
   static uint32_t seen[8] = {0};
   bool interesting = (gid == 0x3009C018);
   if (interesting || !pathlog_seen(gid, seen, 8)) {
-    std::fprintf(stderr, "A518ENTER gid=%08X lr=%08X r3=%08X r4=%08X r5=%08X r6=%08X\n",
+    PROBE_LOG(stderr, "A518ENTER gid=%08X lr=%08X r3=%08X r4=%08X r5=%08X r6=%08X\n",
                  gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32,
                  ctx.r6.u32);
   }
   probe_o_8229A518(ctx, base);
   if (interesting) {
-    std::fprintf(stderr, "A518EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+    PROBE_LOG(stderr, "A518EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
   }
 }
 extern "C" void sub_83000200(PPCContext& ctx, uint8_t* base) {
   static unsigned long n = 0;
   ++n;
   if (n == 1 || (n % 1048576) == 0) {
-    std::fprintf(stderr, "CBDRAIN #%lu ret=? lr=%08X\n", n,
+    PROBE_LOG(stderr, "CBDRAIN #%lu ret=? lr=%08X\n", n,
                  (uint32_t)ctx.lr);
   }
   probe_o_83000200(ctx, base);
@@ -1373,13 +1375,13 @@ extern "C" void sub_82BCA340(PPCContext& ctx, uint8_t* base) {
   static uint32_t seen_out[8] = {0};
   bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
   if (interesting || !pathlog_seen(gid, seen_in, 8)) {
-    std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x82BCA340,
+    PROBE_LOG(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x82BCA340,
                  gid, (uint32_t)ctx.lr);
   }
   std::lock_guard<std::recursive_mutex> lk1(bank_table_mutex);
   probe_o_82BCA340(ctx, base);
   if (interesting || !pathlog_seen(gid, seen_out, 8)) {
-    std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x82BCA340,
+    PROBE_LOG(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x82BCA340,
                  gid, ctx.r3.u32);
   }
 }
@@ -1390,13 +1392,13 @@ extern "C" void sub_82BC9E10(PPCContext& ctx, uint8_t* base) {
   static uint32_t seen_out[8] = {0};
   bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
   if (interesting || !pathlog_seen(gid, seen_in, 8)) {
-    std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x82BC9E10,
+    PROBE_LOG(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x82BC9E10,
                  gid, (uint32_t)ctx.lr);
   }
   std::lock_guard<std::recursive_mutex> lk2(bank_table_mutex);
   probe_o_82BC9E10(ctx, base);
   if (interesting || !pathlog_seen(gid, seen_out, 8)) {
-    std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x82BC9E10,
+    PROBE_LOG(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x82BC9E10,
                  gid, ctx.r3.u32);
   }
 }
@@ -1418,7 +1420,7 @@ extern "C" void sub_83230568(PPCContext& ctx, uint8_t* base) {
     lin = in;
     lout = out;
     ++m;
-    std::fprintf(stderr, "POOL-GROW #%lu slot=%08X out=%08X\n", ++n, in, out);
+    PROBE_LOG(stderr, "POOL-GROW #%lu slot=%08X out=%08X\n", ++n, in, out);
   } else {
     ++n;
   }
@@ -1433,7 +1435,7 @@ extern "C" void sub_82CC2028(PPCContext& ctx, uint8_t* base) {
     if (o >= 0x10000) {
       f = *(base + o) & 0xFF;
     }
-    std::fprintf(stderr, "FLAGWAIT obj=%08X flag=%02X lr=%08X\n", o, f,
+    PROBE_LOG(stderr, "FLAGWAIT obj=%08X flag=%02X lr=%08X\n", o, f,
                  (uint32_t)ctx.lr);
   }
   // REVERTED 2026-09-10 (see 82CBC6B0 note): restore the native 100 ms
@@ -1449,7 +1451,7 @@ extern "C" void sub_82CC2028(PPCContext& ctx, uint8_t* base) {
     static bool logged = false;
     if (!logged) {
       logged = true;
-      std::fprintf(stderr, "SKIP-NULLWAIT lr=%08X\n", (uint32_t)ctx.lr);
+      PROBE_LOG(stderr, "SKIP-NULLWAIT lr=%08X\n", (uint32_t)ctx.lr);
     }
     ctx.r3.u32 = 0;
     return;
@@ -1472,7 +1474,7 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
       return __builtin_bswap32(b);
     };
     uint32_t f = (a4 >= 0x10000) ? (*(base + a4) & 0xFF) : 0xEE;
-    std::fprintf(stderr, "DRAINVIRT r3=%08X r4=%08X [r4]=%02X lr=%08X\n", a3,
+    PROBE_LOG(stderr, "DRAINVIRT r3=%08X r4=%08X [r4]=%02X lr=%08X\n", a3,
                  a4, f, (uint32_t)ctx.lr);
     if (nn == 1) {
       drain_flag_addr = a4;
@@ -1481,7 +1483,7 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
         for (int off = 0; off < 320; off += 32) {
           uint32_t w[8] = {0, 0, 0, 0, 0, 0, 0, 0};
           std::memcpy(w, base + a3 + off, 32);
-          std::fprintf(stderr, "  item+%03X: %08X %08X %08X %08X %08X %08X %08X %08X\n",
+          PROBE_LOG(stderr, "  item+%03X: %08X %08X %08X %08X %08X %08X %08X %08X\n",
                        off, __builtin_bswap32(w[0]), __builtin_bswap32(w[1]),
                        __builtin_bswap32(w[2]), __builtin_bswap32(w[3]),
                        __builtin_bswap32(w[4]), __builtin_bswap32(w[5]),
@@ -1497,7 +1499,7 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
       s24 = rd(vt + 24);
       s28 = rd(vt + 28);
     }
-    std::fprintf(stderr, "VIRTTGT vt=%08X [16]=%08X [20]=%08X [24]=%08X [28]=%08X\n",
+    PROBE_LOG(stderr, "VIRTTGT vt=%08X [16]=%08X [20]=%08X [24]=%08X [28]=%08X\n",
                  vt, s16, s20, s24, s28);
     // ITEM BEGIN snapshot (2026-09-10): 822F3640 exits only when
     // [drainctx+52]!=0 && [drainctx+5]!=0 (consumes +52, returns +5).
@@ -1506,7 +1508,7 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
     if (dctx >= 0x10000 && dctx < 0x84000000) {
       uint32_t w52 = 0;
       std::memcpy(&w52, base + dctx + 52, 4);
-      std::fprintf(stderr, "DRAINCTX ctx=%08X b5=%02X w52=%08X\n", dctx,
+      PROBE_LOG(stderr, "DRAINCTX ctx=%08X b5=%02X w52=%08X\n", dctx,
                    *(base + dctx + 5), __builtin_bswap32(w52));
     }
     // Drain-wait exit gate (0x823787F0): virtual [vtable+16] on the object
@@ -1514,7 +1516,7 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
     uint32_t gobj = rd(0x8349E6EC);
     uint32_t gvt = (gobj >= 0x10000 && gobj < 0x84000000) ? rd(gobj) : 0;
     uint32_t gtgt = (gvt >= 0x10000 && gvt < 0x84000000) ? rd(gvt + 16) : 0;
-    std::fprintf(stderr, "GATETGT obj=%08X vt=%08X tgt=%08X\n", gobj, gvt,
+    PROBE_LOG(stderr, "GATETGT obj=%08X vt=%08X tgt=%08X\n", gobj, gvt,
                  gtgt);
     if (gobj >= 0x10000) {
       gate_byte_addr = gobj + 44;
@@ -1524,7 +1526,7 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
   static unsigned nret = 0;
   if (nret < 20) {
     ++nret;
-    std::fprintf(stderr, "VIRTRET r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "VIRTRET r3=%08X\n", ctx.r3.u32);
   }
 }
 
@@ -1533,7 +1535,7 @@ extern "C" void sub_82477768(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   if (n < 8) {
     ++n;
-    std::fprintf(stderr, "CLEARER r3=%08X r4=%08X lr=%08X\n", ctx.r3.u32,
+    PROBE_LOG(stderr, "CLEARER r3=%08X r4=%08X lr=%08X\n", ctx.r3.u32,
                  ctx.r4.u32, (uint32_t)ctx.lr);
   }
   probe_o_82477768(ctx, base);
@@ -1543,7 +1545,7 @@ REX_IMPORT(__imp__sub_82B9B8D8, probe_o_82B9B8D8, void());
 extern "C" void sub_82B9B8D8(PPCContext& ctx, uint8_t* base) {
   static unsigned long n = 0;
   if (++n <= 5 || n % 1000 == 0) {
-    std::fprintf(stderr, "GPU-IRQ #%lu\n", n);
+    PROBE_LOG(stderr, "GPU-IRQ #%lu\n", n);
   }
   probe_o_82B9B8D8(ctx, base);
 }
@@ -1559,7 +1561,7 @@ extern "C" void sub_82378B10(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "TEARDOWN-RACE 82378B10 zeroes global+26920\n");
+    PROBE_LOG(stderr, "TEARDOWN-RACE 82378B10 zeroes global+26920\n");
   }
   probe_o_82378B10(ctx, base);
 }
@@ -1596,7 +1598,7 @@ extern "C" void sub_822F3640(PPCContext& ctx, uint8_t* base) {
       std::memcpy(&beow, base + lk + 0x18, 4);
       ow = __builtin_bswap32(beow);
     }
-    std::fprintf(stderr, "GTLOCK global=%08X o11=%08X r31=%08X lock=%08X count=%d owner=%08X\n",
+    PROBE_LOG(stderr, "GTLOCK global=%08X o11=%08X r31=%08X lock=%08X count=%d owner=%08X\n",
                  gl, o11, r31, lk, lc, ow);
   }
   // Post-loop spin sampler (0x82378834: waits for [r31+5]!=0): sampled
@@ -1625,7 +1627,7 @@ extern "C" void sub_822F3640(PPCContext& ctx, uint8_t* base) {
       sb5 = b5;
       sw52 = w52;
       sr3 = r3v;
-      std::fprintf(stderr, "SPIN34 #%lu r3=%08X b5=%02X w52=%08X\n", sn,
+      PROBE_LOG(stderr, "SPIN34 #%lu r3=%08X b5=%02X w52=%08X\n", sn,
                    r3v, b5, w52);
     }
     // REPEATING SYNTH OFF 2026-09-10: trace-only mode (see flag/gate note).
@@ -1643,7 +1645,7 @@ extern "C" void sub_822F3640(PPCContext& ctx, uint8_t* base) {
         (long long)time(nullptr) - wlast > 30) {
       wlast = (long long)time(nullptr);
       *(base + r3v + 5) = 1;
-      std::fprintf(stderr, "SPINSYNTH set %08X+5\n", r3v);
+      PROBE_LOG(stderr, "SPINSYNTH set %08X+5\n", r3v);
     }
 #endif
   }
@@ -1655,7 +1657,7 @@ extern "C" void sub_8221EB58(PPCContext& ctx, uint8_t* base) {
   static unsigned long n = 0;
   probe_o_8221EB58(ctx, base);
   if (++n == 1 || n == 200000) {
-    std::fprintf(stderr, "GUESTTICK #%lu r3=%08X r4=%08X\n", n, ctx.r3.u32,
+    PROBE_LOG(stderr, "GUESTTICK #%lu r3=%08X r4=%08X\n", n, ctx.r3.u32,
                  ctx.r4.u32);
   }
 }
@@ -1665,14 +1667,14 @@ extern "C" void sub_831FD318(PPCContext& ctx, uint8_t* base) {
   bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V16-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+    PROBE_LOG(stderr, "V16-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
                  (uint32_t)ctx.lr);
   } else if ((uint32_t)ctx.lr == 0x823787F4) {
-    std::fprintf(stderr, "V16-GATE r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V16-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_831FD318(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V16-EXIT ret=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V16-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_82C43198, probe_o_82C43198, void());
@@ -1681,14 +1683,14 @@ extern "C" void sub_82C43198(PPCContext& ctx, uint8_t* base) {
   bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V20-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+    PROBE_LOG(stderr, "V20-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
                  (uint32_t)ctx.lr);
   } else if ((uint32_t)ctx.lr == 0x823787F4) {
-    std::fprintf(stderr, "V20-GATE r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V20-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_82C43198(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V20-EXIT ret=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V20-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_82378868, probe_o_82378868, void());
@@ -1697,14 +1699,14 @@ extern "C" void sub_82378868(PPCContext& ctx, uint8_t* base) {
   bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V24-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+    PROBE_LOG(stderr, "V24-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
                  (uint32_t)ctx.lr);
   } else if ((uint32_t)ctx.lr == 0x823787F4) {
-    std::fprintf(stderr, "V24-GATE r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V24-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_82378868(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V24-EXIT ret=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V24-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_829CE870, probe_o_829CE870, void());
@@ -1713,14 +1715,14 @@ extern "C" void sub_829CE870(PPCContext& ctx, uint8_t* base) {
   bool log = n < 8;
   if (log) {
     ++n;
-    std::fprintf(stderr, "V28-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
+    PROBE_LOG(stderr, "V28-ENTER r3=%08X lr=%08X\n", ctx.r3.u32,
                  (uint32_t)ctx.lr);
   } else if ((uint32_t)ctx.lr == 0x823787F4) {
-    std::fprintf(stderr, "V28-GATE r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V28-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_829CE870(ctx, base);
   if (log) {
-    std::fprintf(stderr, "V28-EXIT ret=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "V28-EXIT ret=%08X\n", ctx.r3.u32);
   }
 }
 
@@ -1730,11 +1732,11 @@ extern "C" void sub_82C63098(PPCContext& ctx, uint8_t* base) {
   bool log = n < 6;
   if (log) {
     ++n;
-    std::fprintf(stderr, "ENTRY3098-ENTER r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "ENTRY3098-ENTER r3=%08X\n", ctx.r3.u32);
   }
   probe_o_82C63098(ctx, base);
   if (log) {
-    std::fprintf(stderr, "ENTRY3098-EXIT r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "ENTRY3098-EXIT r3=%08X\n", ctx.r3.u32);
   }
 }
 REX_IMPORT(__imp__sub_8236CED8, probe_o_8236CED8, void());
@@ -1743,11 +1745,11 @@ extern "C" void sub_8236CED8(PPCContext& ctx, uint8_t* base) {
   bool log = n < 6;
   if (log) {
     ++n;
-    std::fprintf(stderr, "ENTRYCED8-ENTER\n");
+    PROBE_LOG(stderr, "ENTRYCED8-ENTER\n");
   }
   probe_o_8236CED8(ctx, base);
   if (log) {
-    std::fprintf(stderr, "ENTRYCED8-EXIT\n");
+    PROBE_LOG(stderr, "ENTRYCED8-EXIT\n");
   }
 }
 
@@ -1772,12 +1774,12 @@ extern "C" void sub_8236CB48(PPCContext& ctx, uint8_t* base) {
         ow = __builtin_bswap32(beow);
       }
     }
-    std::fprintf(stderr, "CB48-ENTER r3=%08X lock=%08X count=%d owner=%08X lwp=%d\n",
+    PROBE_LOG(stderr, "CB48-ENTER r3=%08X lock=%08X count=%d owner=%08X lwp=%d\n",
                  a3, lk, lc, ow, gettid());
   }
   probe_o_8236CB48(ctx, base);
   if (log) {
-    std::fprintf(stderr, "CB48-EXIT\n");
+    PROBE_LOG(stderr, "CB48-EXIT\n");
   }
 }
 REX_IMPORT(__imp__sub_82B68FC8, probe_o_82B68FC8, void());
@@ -1786,11 +1788,11 @@ extern "C" void sub_82B68FC8(PPCContext& ctx, uint8_t* base) {
   bool log = n < 4;
   if (log) {
     ++n;
-    std::fprintf(stderr, "B68FC8-ENTER\n");
+    PROBE_LOG(stderr, "B68FC8-ENTER\n");
   }
   probe_o_82B68FC8(ctx, base);
   if (log) {
-    std::fprintf(stderr, "B68FC8-EXIT\n");
+    PROBE_LOG(stderr, "B68FC8-EXIT\n");
   }
 }
 REX_IMPORT(__imp__sub_82A3B890, probe_o_82A3B890, void());
@@ -1799,11 +1801,11 @@ extern "C" void sub_82A3B890(PPCContext& ctx, uint8_t* base) {
   bool log = n < 4;
   if (log) {
     ++n;
-    std::fprintf(stderr, "A3B890-ENTER\n");
+    PROBE_LOG(stderr, "A3B890-ENTER\n");
   }
   probe_o_82A3B890(ctx, base);
   if (log) {
-    std::fprintf(stderr, "A3B890-EXIT\n");
+    PROBE_LOG(stderr, "A3B890-EXIT\n");
   }
 }
 REX_IMPORT(__imp__sub_82A3BB78, probe_o_82A3BB78, void());
@@ -1812,11 +1814,11 @@ extern "C" void sub_82A3BB78(PPCContext& ctx, uint8_t* base) {
   bool log = n < 4;
   if (log) {
     ++n;
-    std::fprintf(stderr, "A3BB78-ENTER\n");
+    PROBE_LOG(stderr, "A3BB78-ENTER\n");
   }
   probe_o_82A3BB78(ctx, base);
   if (log) {
-    std::fprintf(stderr, "A3BB78-EXIT\n");
+    PROBE_LOG(stderr, "A3BB78-EXIT\n");
   }
 }
 
@@ -1824,161 +1826,161 @@ REX_IMPORT(__imp__sub_82378FA0, probe_o_82378FA0, void());
 extern "C" void sub_82378FA0(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 6;
-  if (log) { ++n; std::fprintf(stderr, "B78FA0-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "B78FA0-ENTER\n"); }
   probe_o_82378FA0(ctx, base);
-  if (log) { std::fprintf(stderr, "B78FA0-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "B78FA0-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_823FE988, probe_o_823FE988, void());
 extern "C" void sub_823FE988(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 6;
-  if (log) { ++n; std::fprintf(stderr, "BFE988-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "BFE988-ENTER\n"); }
   probe_o_823FE988(ctx, base);
-  if (log) { std::fprintf(stderr, "BFE988-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "BFE988-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_823FECA0, probe_o_823FECA0, void());
 extern "C" void sub_823FECA0(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 6;
-  if (log) { ++n; std::fprintf(stderr, "BFECA0-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "BFECA0-ENTER\n"); }
   probe_o_823FECA0(ctx, base);
-  if (log) { std::fprintf(stderr, "BFECA0-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "BFECA0-EXIT\n"); }
 }
 
 REX_IMPORT(__imp__sub_823FE828, probe_o_823FE828, void());
 extern "C" void sub_823FE828(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 6;
-  if (log) { ++n; std::fprintf(stderr, "FE828-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "FE828-ENTER\n"); }
   probe_o_823FE828(ctx, base);
-  if (log) { std::fprintf(stderr, "FE828-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "FE828-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_823F89B0, probe_o_823F89B0, void());
 extern "C" void sub_823F89B0(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 6;
-  if (log) { ++n; std::fprintf(stderr, "F89B0-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "F89B0-ENTER\n"); }
   probe_o_823F89B0(ctx, base);
-  if (log) { std::fprintf(stderr, "F89B0-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "F89B0-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_826CAFA8, probe_o_826CAFA8, void());
 extern "C" void sub_826CAFA8(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 6;
-  if (log) { ++n; std::fprintf(stderr, "AFA8-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "AFA8-ENTER\n"); }
   probe_o_826CAFA8(ctx, base);
-  if (log) { std::fprintf(stderr, "AFA8-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "AFA8-EXIT\n"); }
 }
 
 REX_IMPORT(__imp__sub_821E2CC8, probe_o_821E2CC8, void());
 extern "C" void sub_821E2CC8(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "E2CC8-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "E2CC8-ENTER\n"); }
   probe_o_821E2CC8(ctx, base);
-  if (log) { std::fprintf(stderr, "E2CC8-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "E2CC8-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_82B3AEA0, probe_o_82B3AEA0, void());
 extern "C" void sub_82B3AEA0(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "B3AEA0-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "B3AEA0-ENTER\n"); }
   probe_o_82B3AEA0(ctx, base);
-  if (log) { std::fprintf(stderr, "B3AEA0-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "B3AEA0-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_82C63FB8, probe_o_82C63FB8, void());
 extern "C" void sub_82C63FB8(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "C63FB8-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "C63FB8-ENTER\n"); }
   probe_o_82C63FB8(ctx, base);
-  if (log) { std::fprintf(stderr, "C63FB8-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "C63FB8-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_82C62DE8, probe_o_82C62DE8, void());
 extern "C" void sub_82C62DE8(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "C62DE8-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "C62DE8-ENTER\n"); }
   probe_o_82C62DE8(ctx, base);
-  if (log) { std::fprintf(stderr, "C62DE8-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "C62DE8-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_82C62A08, probe_o_82C62A08, void());
 extern "C" void sub_82C62A08(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "C62A08-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "C62A08-ENTER\n"); }
   probe_o_82C62A08(ctx, base);
-  if (log) { std::fprintf(stderr, "C62A08-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "C62A08-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_82214F08, probe_o_82214F08, void());
 extern "C" void sub_82214F08(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "214F08-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "214F08-ENTER\n"); }
   probe_o_82214F08(ctx, base);
-  if (log) { std::fprintf(stderr, "214F08-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "214F08-EXIT\n"); }
 }
 
 REX_IMPORT(__imp__sub_82A43728, probe_o_82A43728, void());
 extern "C" void sub_82A43728(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "A43728-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "A43728-ENTER\n"); }
   probe_o_82A43728(ctx, base);
-  if (log) { std::fprintf(stderr, "A43728-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "A43728-EXIT\n"); }
 }
 
 REX_IMPORT(__imp__sub_82378420, probe_o_82378420, void());
 extern "C" void sub_82378420(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "378420-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "378420-ENTER\n"); }
   probe_o_82378420(ctx, base);
-  if (log) { std::fprintf(stderr, "378420-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "378420-EXIT\n"); }
 }
 
 REX_IMPORT(__imp__sub_82CBD098, probe_o_82CBD098, void());
 extern "C" void sub_82CBD098(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "CBD098-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "CBD098-ENTER\n"); }
   probe_o_82CBD098(ctx, base);
-  if (log) { std::fprintf(stderr, "CBD098-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "CBD098-EXIT\n"); }
 }
 REX_IMPORT(__imp__sub_8231E908, probe_o_8231E908, void());
 extern "C" void sub_8231E908(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "31E908-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "31E908-ENTER\n"); }
   probe_o_8231E908(ctx, base);
-  if (log) { std::fprintf(stderr, "31E908-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "31E908-EXIT\n"); }
 }
 
 REX_IMPORT(__imp__sub_82356180, probe_o_82356180, void());
 extern "C" void sub_82356180(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "356180-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "356180-ENTER\n"); }
   probe_o_82356180(ctx, base);
-  if (log) { std::fprintf(stderr, "356180-EXIT r3=%08X\n", ctx.r3.u32); }
+  if (log) { PROBE_LOG(stderr, "356180-EXIT r3=%08X\n", ctx.r3.u32); }
 }
 
 REX_IMPORT(__imp__sub_82354980, probe_o_82354980, void());
 extern "C" void sub_82354980(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 4;
-  if (log) { ++n; std::fprintf(stderr, "354980-ENTER\n"); }
+  if (log) { ++n; PROBE_LOG(stderr, "354980-ENTER\n"); }
   probe_o_82354980(ctx, base);
-  if (log) { std::fprintf(stderr, "354980-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "354980-EXIT\n"); }
 }
 
 REX_IMPORT(__imp__sub_825BAFC0, probe_o_825BAFC0, void());
 extern "C" void sub_825BAFC0(PPCContext& ctx, uint8_t* base) {
   static unsigned n = 0;
   bool log = n < 8;
-  if (log) { ++n; std::fprintf(stderr, "5BAFC0-ENTER lr=%08X\n", (uint32_t)ctx.lr); }
+  if (log) { ++n; PROBE_LOG(stderr, "5BAFC0-ENTER lr=%08X\n", (uint32_t)ctx.lr); }
   probe_o_825BAFC0(ctx, base);
-  if (log) { std::fprintf(stderr, "5BAFC0-EXIT\n"); }
+  if (log) { PROBE_LOG(stderr, "5BAFC0-EXIT\n"); }
 }
 
 // TEST (reversible): post-populate sequencer probes (first-hit + passthrough).
@@ -2003,14 +2005,14 @@ extern "C" void sub_82CBB638(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82CBB638 branch-entry lr=%08X\n",
+    PROBE_LOG(stderr, "PROBE-HIT 82CBB638 branch-entry lr=%08X\n",
                  (uint32_t)ctx.lr);
   }
   probe_o_82CBB638(ctx, base);
   static bool done = false;
   if (!done) {
     done = true;
-    std::fprintf(stderr, "PROBE-HIT 82CBB638-EXIT returned\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82CBB638-EXIT returned\n");
   }
 }
 REX_IMPORT(__imp__sub_82CA97B8, probe_o_82CA97B8, void());
@@ -2018,14 +2020,14 @@ extern "C" void sub_82CA97B8(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82CA97B8 post-branch lr=%08X\n",
+    PROBE_LOG(stderr, "PROBE-HIT 82CA97B8 post-branch lr=%08X\n",
                  (uint32_t)ctx.lr);
   }
   probe_o_82CA97B8(ctx, base);
   static bool done = false;
   if (!done) {
     done = true;
-    std::fprintf(stderr, "PROBE-HIT 82CA97B8-EXIT returned\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82CA97B8-EXIT returned\n");
   }
 }
 REX_IMPORT(__imp__sub_82CBB788, probe_o_82CBB788, void());
@@ -2033,14 +2035,14 @@ extern "C" void sub_82CBB788(PPCContext& ctx, uint8_t* base) {
   static bool logged = false;
   if (!logged) {
     logged = true;
-    std::fprintf(stderr, "PROBE-HIT 82CBB788 chain-head lr=%08X\n",
+    PROBE_LOG(stderr, "PROBE-HIT 82CBB788 chain-head lr=%08X\n",
                  (uint32_t)ctx.lr);
   }
   probe_o_82CBB788(ctx, base);
   static bool done = false;
   if (!done) {
     done = true;
-    std::fprintf(stderr, "PROBE-HIT 82CBB788-EXIT returned\n");
+    PROBE_LOG(stderr, "PROBE-HIT 82CBB788-EXIT returned\n");
   }
 }
 
@@ -2053,16 +2055,16 @@ extern "C" void sub_82185418(PPCContext& ctx, uint8_t* base) {
   ++n;
   uint32_t lr = (uint32_t)ctx.lr;
   if (n <= 8) {
-    std::fprintf(stderr, "GATE16-ENTER #%u r3=%08X lr=%08X\n", n,
+    PROBE_LOG(stderr, "GATE16-ENTER #%u r3=%08X lr=%08X\n", n,
                  ctx.r3.u32, lr);
   } else if (lr == 0x823787F4) {
-    std::fprintf(stderr, "GATE16-GATE r3=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "GATE16-GATE r3=%08X\n", ctx.r3.u32);
   }
   probe_o_82185418(ctx, base);
   if (n <= 8) {
-    std::fprintf(stderr, "GATE16-EXIT #%u ret=%08X\n", n, ctx.r3.u32);
+    PROBE_LOG(stderr, "GATE16-EXIT #%u ret=%08X\n", n, ctx.r3.u32);
   } else if (lr == 0x823787F4) {
-    std::fprintf(stderr, "GATE16-GATE-RET ret=%08X\n", ctx.r3.u32);
+    PROBE_LOG(stderr, "GATE16-GATE-RET ret=%08X\n", ctx.r3.u32);
   }
 }
 
@@ -2076,7 +2078,7 @@ extern "C" void sub_82185418(PPCContext& ctx, uint8_t* base) {
     static bool logged = false; \
     if (!logged) { \
       logged = true; \
-      std::fprintf(stderr, "PROBE-HIT " #addr " gatefam r3=%08X lr=%08X\n", \
+      PROBE_LOG(stderr, "PROBE-HIT " #addr " gatefam r3=%08X lr=%08X\n", \
                    ctx.r3.u32, (uint32_t)ctx.lr); \
     } \
     probe_o_##addr(ctx, base); \

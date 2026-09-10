@@ -1279,3 +1279,20 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   elimination if the three stay balanced). ptrace denied, so no live GDB.
 - Debt unchanged: codegen bypass (re-apply after each cmake configure:
   configure rewrites generated/rexglue.cmake), shm cleanup per run.
+
+## Perf + GPU triage 2026-09-10 ~23:15
+- Silenced all 196 hooks.cpp probes (PROBE_LOG no-op): FPS still ~1/s,
+  so rendering (llvmpipe) dominates, not logging. Resume-jump + thunk
+  chains kept (no logging in them).
+- NVIDIA attempt (RTX 3060, host driver 610.57): nix loader + staged host
+  libs in /tmp/nvk (libGLX_nvidia, glcore, glsi, glvkspirv, allocator,
+  gpucomp, tls, libvulkan) get vkCreateInstance working with HOST
+  libvulkan, but the game renders BLACK with GPU at ~66% and VRAM
+  leaking 1.6GB -> 8.9GB. ReXGlue GPU emulation + NVIDIA looks broken;
+  llvmpipe shows the legal/title screens correctly. Full notes for the
+  GPU worktree: host ICD /usr/share/vulkan/icd.d/nvidia_icd.json,
+  custom /tmp/nvk/nvidia_icd.json, launch outside nix with
+  LD_LIBRARY_PATH=rexglue-sdk/out:/tmp/nvk:<nix-stlibs> (never prefix
+  /usr/lib: glibc conflict). Do NOT run two games at once (shm/CPU).
+- New-game path playable to FATALs: 822142D0, 82267C88, 82E8F9E8,
+  82267568 (tiny getters, all registered). Visible run in progress.
