@@ -994,3 +994,272 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
 - Do NOT re-add: DRAINVIRT force (skips intro), pool retry, 3D gate.
 - SDK patch (keep-open, in binary via game rebuild) + tracked diff in
   docs/re/patches/sdk-keep-open.patch.
+
+## Grind relaunch + branch-thread map 2026-09-10 ~12:45
+
+- Bare `scripts/run` died in 0.25 s (`Failed to load libvulkan.so.1`):
+  runs MUST go through `nix develop path:. -c env RUN_SECONDS=…
+  scripts/run` (runbook already says so; the bare env lacks the loader).
+  1800 s offscreen grind relaunched under nix (~13:15 expected end).
+- Archived 01:45 log (logs/console-archive-20260910-0145.log, 1M lines,
+  0 faults): chain-head `82CBB788` x1 (lr=`82CBB9B4`), branch
+  `822EA8C0`-ENTER x1 (lr=`82CBBB0C`), `82CBB638` entry+exit, then branch
+  never returns. STRONG INFERENCE: outer `82CBB788` entered via raw guest
+  address as a thread start, BYPASSING the wrapper probe (its entry was
+  never logged; only the guarded-recursion `bl` at `82CBB9B0` routed via
+  the wrapper, lr=`82CBB9B4`). Wrapper probes are blind to thread-entry
+  invocations — EXIT lines undercount still-parked outer frames.
+- Branch body (recomp.223.cpp:2214) decoded: `82CBB638` (returned) ->
+  `82CBB570` (trivial getter, `r3=[0x82000968]`, cannot park) ->
+  `821E6388` -> `82CA34B0` -> `82196C58` -> `82CBBF60`. Park is at/after
+  `821E6388`.
+- `821E6388` (recomp.121.cpp:667) is CONFIRMED a strstr-like pure routine
+  (`r4`=`"waitformem"` at 0x8208FB10, guests strings table); returns fast,
+  not the park. `[0x82000968]`=`0x30008000` in the static image.
+- Next (after grind run, one variable): LR-filtered entry/exit probes on
+  the four shared branch callees (`821E6388` lr=`822EA8E8`, `82CA34B0`
+  lr=`822EA8FC`, `82196C58` lr=`822EA908`, `82CBBF60` lr=`822EA910`).
+  All are DEFINE_REX_FUNC starts (`nm` proves `__imp__` text symbols
+  exist, e.g. `__imp__sub_821E6388`); the `82CA2C3C` link failure was
+  mid-function-label-only. LR filter keeps the 105/91-caller utils quiet.
+
+## Spin predicate decoded 2026-09-10 ~13:00 (trace-only run A in flight)
+
+- Loop (recomp.250.cpp `82378800/20`): poll `822F3640`; low byte != 0
+  exits; else `82CBC6B0(100)` then re-poll. `82CBC6B0` = r4=0 +
+  tail-call `82CC2028`.
+- `82CC2028(r3,r4)` (recomp.87.cpp:25195): interval = r3*(-10000) 100 ns
+  units (r3=100 -> 100 ms relative); single `KeDelayExecutionThread`
+  then exit iff `(r4&0xFF)==0` else re-wait on status 257. r30 comes
+  from the REGISTER (`clrlwi r30,r31,24`), not a `[0]` memory read —
+  the SKIP-NULLWAIT comment rationale (zero-page garbage parks null
+  waits forever) does NOT match the generated code; null-object wait =
+  one 100 ms kernel delay + return. HYPOTHESIS: comment is stale (older
+  codegen emitted a load) or describes a different path. VERIFY before
+  trusting either skip.
+- Two stacked TEST skips remove the pacing: SKIP-GTSLEEP (82CBC6B0,
+  lr=`82378828`) + SKIP-NULLWAIT (82CC2028, null obj). Result: ~7M
+  polls/s hot spin (SPIN34 #1.4B in 300 s) + ~110k log lines/s I/O
+  flood. Original design polls at 10 Hz with alertable kernel waits
+  (DPC/APC delivery points). Whether this starves the [drainctx+5]
+  writer is UNKNOWN — revert candidates, one variable at a time.
+- SPIN34 sampler throttled to change-only + 2^20 heartbeat (staged in
+  hooks.cpp, not yet built): the flood itself perturbs scheduling.
+- Bink CONFIRMED statically linked (RAD strings 0x820FF080+):
+  `GAME:\data\art\videos\microsoft_logo.bik`,
+  `lionhead_logo.bik` (0x820A1860/8C) + in-game `videos/*.bik` table
+  (0x820A7C34+). No `BinkOpen` symbol (static link, stripped).
+- #387 lost-wakeup fix PRESENT: pinned SDK v0.10.0 contains 96bee61.
+  ReXGlue-side thread-start race ruled out at this revision.
+
+## Completion-signal hunt 2026-09-10 ~13:00-13:35 (APC theory dead)
+
+- Writer map (GDB hw watchpoints, host=0x100000000+guest, both aliases):
+  - `[drainctx+52]` = return of `82CA34B0`, stored by the verdict builder
+    `822F27C0` (`stw r3,52(r27)`, recomp.276.cpp). Value F80000E0/FC =
+    worker THREAD HANDLE (82CA34B0 -> 82CBD280 -> 82CC8758 ->
+    ExCreateThread(start=82CA3430, 256 KB, suspended) -> resume same path).
+    Second 82CA3430 thread runs the 82B41738 job loop (alive, churning);
+    it never enters 822EA928 (one SEQENTER per boot, GDB-proven).
+  - `[drainctx+5]` has NO writer in 220 s of watched boot (virtual +
+    physical aliases). Verdict's `stb r28,5` always stores 0: r28 is
+    `li 0` at 822F27C0 head, never reassigned (CONFIRMED full-body scan).
+    Only other writers ever: 0xBE stack-fill clobber (pre-constructor,
+    self-healed) + 822F2518 constructor zero. +5=1 never exists.
+  - Gate byte [4011F250+44]: NEVER written (110 s watched). Gate closed.
+  - "Flag" [42205148]=01 is NOT a flag: it's a CRITICAL SECTION's
+    signal_state, set by RtlInitializeCriticalSection from 82A496A8 <-
+    8238DF78 <- 823781A8 <- 822F47F8. Old FLAGSYNTH corrupted a live CS.
+  - `82CBB570` CONFIRMED trivial (`r3=[0x82000968]`, 3 insns): the branch
+    parks at/after `821E6388` (strstr "waitformem", pure). Sideline.
+- work-flag [42100010+68]=1 set once at xstart (82B40A80); worker pool
+  consumes normally. Pool is healthy; the drain item was never completed
+  through it.
+- 822F3640 CONFIRMED: lock [r31+8]; needs [+52]!=0 AND [+5]!=0 (consumes
+  +52, returns +5); RtlLeaveCriticalSection; return. Two-byte AND gate.
+- APC/starvation theory DEAD: SKIP-GTSLEEP + SKIP-NULLWAIT reverted
+  (native 100 ms alertable KeDelay restored), 150 s run => IDENTICAL
+  stall (VERDICT 1, b5=00, 0 faults), just parked at the gate instead of
+  hot-spinning. The old SKIP-NULLWAIT rationale was wrong (r30 comes
+  from the register `clrlwi r30,r31,24`, not a `[0]` load).
+- First drain item identity (deterministic x3): item 42205020, vt
+  820A7E20 (virtuals: empty stubs 82C43198/829CE870 + drain-region
+  continuations 82378868/8AC0/BB0/BB8/C78), drainctx at item+0x5C
+  (=822EA928 stack frame r1+96, NOT heap). Speech-bank neighborhood
+  strings (speech.bnk/adb) adjacent to vtable.
+- Next: A/B natural-EOF vs normal-input-skip (needs visible run B with
+  user keypress); then Bink EOF lifecycle vs Xenia.
+
+## Bank-mutex deadlock + 3D fault transient 2026-09-10 ~13:45-13:55
+
+- Live-stack snapshot (interactive GDB, 75 s in) caught Permanent Bank
+  thread SELF-DEADLOCKED in our hooks: 82BCA340 wrapper holds
+  `bank_table_mutex` (hooks.cpp:908) while reentering 82BC9E10 wrapper
+  (hooks.cpp:912) on the same thread. Same-thread holder+waiter,
+  CONFIRMED from one backtrace.
+- No-mutex trial: Permanent Bank unblocked, but 3D Engine thread faults
+  11-16k times on read [0x14] at 821E27C8 (recomp.235.cpp:1049, 3d-proc
+  chain) in a ~0.5 s burst ~90 s in; game stays alive after (GPU-IRQ,
+  GATE16 continue). Recursive mutex does NOT suppress it: the plain
+  mutex "worked" only by freezing bank state via the deadlock.
+- Drain stall IDENTICAL in all three mutex states (VERDICT 1, b5=00,
+  w52=worker handle, 0 faults outside the burst). The bank/3D issues
+  are orthogonal to the +5 completion stall so far.
+- Current binary (recursive bank mutex, native pacing, trace-only) is
+  the run-B candidate: intro window (first ~30 s) is clean in every run;
+  the burst comes much later. User warned to weight the first minute.
+
+## A/B outcome + job architecture 2026-09-10 ~14:05
+
+- A/B: skip half IMPOSSIBLE. User pressed everything (MNK + controller):
+  intro plays to last frame, no input skips it. Treat as authentic 360
+  behavior (HYPOTHESIS). Natural-EOF half CONFIRMED x4 (3 headless + 1
+  visible run B, same bytes: VERDICT 1, vt 820A7E20, b5=00). The stall is
+  display-independent; the completion must come from natural EOF handling.
+- Input note: `mnk_mode` defaults false (START=X/Return, A=`;`/Space only
+  when enabled). mnk run authorized but moot if nothing is skippable.
+- 82CA34B0's r3 in the verdict call is 0x822F33B8 (NOT 0x823F33B8; lis
+  arithmetic corrected: -32209 -> 0x822F high). It submits the bank-load
+  JOB (fn=822F33B8, size 0x40000) to the pool; +52 = worker thread handle.
+  Worker (start 82CA3430, ctx 82CCA400, resumed by 82CC1610) joins the
+  82B41738 pool loop alive. Whether it dequeues THIS job is unproven.
+- Next: prove whether any pool thread enters 822F33B8 (GDB entry log by
+  host thread, no rebuild), then Bink EOF -> close -> +5 chain or the
+  job-completion store.
+
+## Baseline restored 2026-09-10 ~14:23 (plain bank mutex back)
+
+- 90 s headless: 0 faults, VERDICT 1, b5=00, w52=E0. Known stall state.
+- Storm mechanism CONFIRMED from SDK source: ReXGlue's posix signal
+  handler falls off the end when no handler claims the fault, so the
+  kernel resumes the faulting PC -> infinite signal loop (32k faults/s).
+  Any unhandled guest fault becomes log-destroying; rotation (20x5MB)
+  eats all boot content within ~20 s. Storm onset varies (~50-100 s).
+- Physical Xbox 360 controller IS present (SDL OnControllerDeviceAdded,
+  045E:028E). User's skip presses likely registered at the HID layer;
+  unskippable-intro reading strengthened (still HYPOTHESIS: XAM mapping
+  unverified).
+- Noisy import tracing (--log_noisy + --log_verbose) emits NOTHING usable:
+  no NtCreateFile success lines; storm rotations dominate. File-level
+  Bink lifecycle still needs the GDB path decoder or a hook.
+
+## Worker unblock refuted 2026-09-10 ~14:45
+
+- Recursive mutex lets the verdict worker past the bank deadlock, but
+  +5 STILL never sets (DRAINCTX b5=00, no populate, 150 s). The deadlock
+  was A blocker, not THE blocker: the worker parks again further along
+  (past 82BC9E10) or never reaches 822F33B8's +5 store.
+- Current binary (14:43) is recursive-mutex: worker unblocked, storm
+  possible but INTERMITTENT (a full 150 s GDB run just had ZERO faults
+  with the drain at SPIN34/b5=00). Keep this binary for run C; do NOT
+  revert to plain without new evidence.
+- Storm watch: a full 150 s GDB run just completed with ZERO faults and
+  the drain at SPIN34 (b5=00). The 3D [0x14] storm is INTERMITTENT
+  across runs, not deterministic. Fault-PC capture configured for it
+  (filters on host 0x100000014) but the storm didn't fire that run.
+
+## Worker identity + parked shape 2026-09-10 ~15:20 (long run grinding)
+
+- Verdict worker (gid 3009C018, deterministic) IS the "Permanent Bank"
+  audio thread (host comm confirms). 0% CPU for 10+ min: BLOCKED in a
+  wait, not spinning. Unbalanced frames: 822F33B8 -> ... -> 822C05F8 ->
+  822C0568 (lr=822C062C), whose bctr target (entry r4) never returns.
+- 822C0568 body: drain-queue loop on 83000200 (slot [0x83321A8C]
+  dispatch) + final indirect call. Worker past the fills (138 buffers
+  50A40010..50A544D0, then stops), now in the bctr wait.
+- Shape looks like GameThread<->Bank circular wait: drain needs +5 from
+  the job; job's tail needs a wait that only post-drain (or audio-side)
+  progress signals. CBDRAIN counter probe built (15:16 binary) to
+  separate loop-spin from parked-target; runs after the 1500 s grind.
+- 822F33B8's own tail holds the +5 store (`stb r11,5(r28)`,
+  recomp.284.cpp) — the job KNOWS how to complete; it never gets there.
+
+## Null link + R29FIX progress 2026-09-10 ~17:30
+
+- Fault PC nailed to the instruction (aligned objdump): 822DF280 does
+  `r11=[r29+20]; r10=[r11+8 or +4]; r22=[r10]` and faults dereferencing a
+  null link in the bank-descriptor list. r29 itself is VALID (4F640220);
+  an earlier r29==0 reading was wrong (misaligned disasm + addr2line
+  drift). The real fault: null link field, not null base.
+- R29FIX (restore r29 across 8219F010 when clobbered; fired once:
+  in=4F640220 out=0) moves execution PAST the [0x14] fault to a LATER
+  fault at [0x10] (+0x3bc1d10): `r22=[r10]` with [r10]==0, i.e. a node
+  whose first word is zero (allocated but never filled).
+- So the bank list the worker walks contains an EMPTY node: loader filled
+  138 buffers then stopped; the walker finds a hole. Candidates: (a)
+  loader quota reached but a fill failed silently (file read error ->
+  zero node); (b) walker overruns by one (off-by-one); (c) node freed
+  early (use-after-free); (d) link filled by a step that never runs.
+- SDK TEMP-DIAGs live: fault PC+offset (mmio_handler.cpp, tracked in
+  docs/re/patches/sdk-fault-pc.patch). Revert when storm is solved.
+- Fills hold at 138 even over 25 min; +5 never sets; drain never exits.
+  Open: Bink EOF chain, Xenia oracle.
+
+## Holding for expert feedback 2026-09-10 ~18:30
+
+- Bank object dump (GDB, deterministic boot): `4F640220` holds valid
+  pointers throughout (`[+20]=50640028` intact at rest). Holes appear
+  mid-walk, not at rest. Full brief sent to expert; see chat summary.
+- Xenia oracle shut down (result banked: gameplay with cosmetic patches
+  only). Xvfb :98 retained if needed.
+- Current binary: recursive bank mutex + R29FIX + path probes (all TEST).
+  No runs in flight. Awaiting direction: bank-list completion trigger vs
+  Xenia-differential vs expert input.
+
+## Xenia oracle banked + r1 verdict 2026-09-10 ~19:15
+
+- Xenia (edge AppImage, Lavapipe, same files, cosmetic patches only)
+  boots Fable II into 3D gameplay (screenshots). Our stall is definitively
+  ours. Oracle shut down; logs/screenshots retained.
+- r1 verdict: worker's 8219F010 returns with r1 +0x3D0 (704FF300→704FF6D0)
+  and r29/lr zeroed. All 6 direct callees balance r1 (R1BAL probes, zero
+  hits); 8219F010's own stwu/addi balanced; save/restore helpers correct
+  in isolation. The +0x3D0 must come from the single indirect call
+  (8219F010's bctr) or deeper nesting. No 976-byte frame on the probed
+  path; 5 such functions exist elsewhere, none observed on worker path.
+- Two bounded steps concluded: (1) [0x7C] fault = null table [r31+16] on
+  first iteration (loader hasn't built it); (2) loader stops at 138 fills
+  by its own quota while the walker finds holes. Next: bctr-target
+  identity (GDB, no rebuild) or expert input on r1+0x3D0.
+
+## Context-restore root cause + resume-jump fix 2026-09-10 ~21:30 (CONFIRMED)
+
+- R1LEAK descent (each +0x3D0 exact, chained in/out pairs) converged:
+  8219F010(outer, from 822DF280:lr=822DFEC4) -> bctr 82BB6CA0 ->
+  82BC6A18 -> 82BC9788 -> 82BCCB88 -> 82CA9260 (+0x440; 82BCCB88's own
+  missing epilogue accounts the rest: -112+1088=+976).
+- 82CA9260 is a context-restore: r7=r3=CONTEXT*, restores FP/GPR/VMX/CR,
+  `ld r1,144(r7)`, `mtlr [r7+308]`, blr. CTXREST probe: ctx on worker
+  stack (704FF510), savedR1=704FF4B0, savedLR=822C05A8 (mid-822C0568,
+  just past its `bl 83000200` sleep). Generated code C++-returns instead
+  of jumping -> dispatcher continues with resume-r1 -> fault storm.
+- On HW the restore is load-bearing: everything after it is unreachable
+  (82BCCB88 genuinely ends `bl 82CA9798` + padding; the path only works
+  because the restore jumps away). Neutralize-and-continue disproven:
+  it entered unreachable code, new fault guest=0x8 at 8219F010/loc_8219F284
+  (r31=0, clobbered nonvolatile on the dead path).
+- Fix (hooks.cpp-only, TEST reversible): 82CA9260 override runs the body,
+  then runs the 822C05A8 resume inline (copied loc_822C05A8..blr) and host
+  longjmps to a setjmp buffer in the ancestor 822C0568 wrapper, abandoning
+  the dead chain. Gate: saved-LR==822C05A8 and buffer armed, else fallback
+  passthrough + R1LEAK log. Outermost 822C0568 wins the thread_local buffer.
+- Result: RESUMEJUMP x2 (deterministic values), RESUMED ret=2, ZERO guest
+  faults over 150 s / 12.3M console lines. Storm (0x14) gone. Game advanced
+  to new frontier: FATAL call to undiscovered thunk 0x829FCB00.
+- 829FCB00: vtable-style thunk (lwz/mtctr/bctrl + loop, blr at 829FCBA0).
+  Manifest entry added [entrypoint.functions.829FCB00] end=0x829FCBA4
+  (sibling thunk at 829FCAE8 shares the tail; add if it FATALS).
+  Manual codegen (44 s) + rebuild: next 150 s run reached time limit with
+  0 faults, worker in new regions (8220893C/8217ABA4/82C63860), sequencer
+  82CBB788 x2, drain-verdict x1, vtable tail 829FF648 active.
+- ENV/DEBT (must not lose): (1) /dev/shm fills with xenia_memory_* per
+  KILLed run -> startup SIGBUS in Memory::Initialize; rm them when runs
+  die at ~2 s. (2) Codegen SIGBUSes under ninja (VA-layout luck); bypass
+  in generated/rexglue.cmake (TEMP-DEBUG-BYPASS, ignored file, local
+  only): codegen runs MANUALLY (`./rexgluerd codegen`), builds skip it.
+  (3) Regen wiped temp gen patches (BCTRTGT/CTXREST served purpose).
+  (4) Resume-jump uses host longjmp across ReXGlue frames (Tracy/fiber
+  caveats); chain-abandon leaks dead C++ frames per wake (rare: 2/run).
+  Proper fix = codegen mtlr+blr->indirect-jump + mid-function targets.
+- Next: grind the new frontier queue (undiscovered functions as FATALs
+  arrive), then populate/menu/title per the headless plan.

@@ -76,3 +76,9 @@ end = 0x82C867F4
 
 [entrypoint.functions.82B84350]
 end = 0x82B84358
+
+# Virtual-dispatch thunk (vtable slot, offset12). Evidence: FATAL call to
+# 0x829FCB00 2026-09-10 after resume-jump unblocked the drain; bytes decode
+# to lwz/mtctr/bctrl + post-call loop ending in blr at 0x829FCBA0.
+[entrypoint.functions.829FCB00]
+end = 0x829FCBA4

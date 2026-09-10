@@ -26,18 +26,22 @@ extern "C" void sub_832AF210(PPCContext& ctx, uint8_t* base) {
 
 // TEST (reversible): presence probes. Each logs first call, then passes
 // through to the original body untouched (zero-arg import preserves all
+#include <execinfo.h>
+#include <unistd.h>
 // guest registers). Determines which boot phases execute at all.
 #include <atomic>
 #include <cstdio>
 #include <mutex>
 #include <rex/hook.h>
-// TEST (reversible): serialize bank table access. `82BCD7B0` faults on
-// `[r9+r11]` while fill workers (`82BCA340`/`82BC9E10`/`82BC9EA0`) produce
-// the same table; entry snapshots look valid but fault-time values differ,
-// implicating a race. A host mutex across all four diagnoses it: if faults
-// vanish, the race is confirmed and the game's own missing lock (or a
-// ReXGlue timing artifact) is the root cause. All four take the mutex in
-static std::mutex bank_table_mutex;
+// 2026-09-10: plain mutex self-deadlocks on 82BCA340 -> 82BC9E10 reentrancy
+// (Permanent Bank stuck, GDB-proven) — BUT any reentrant-capable form
+// (none, recursive) lets Permanent Bank complete a path after which the 3D
+// thread fault-storms 16-27k times on [0x14] at 821E27C8 (ReXGlue resumes
+// unhandled faults at the same PC: infinite signal loop, log-destroying).
+// Plain mutex = known 0-fault baseline every A/B datum was gathered on.
+// The reentrant bank path + 3D [0x14] read is open follow-up work; do NOT
+// "fix" by removing this mutex without solving that first.
+static std::recursive_mutex bank_table_mutex;
 // Phase gate: set when GameThread's drain returns; 3D's takes wait on it.
 std::atomic<bool> gt_drain_done{false};
 // Set when DRAINVIRT fires (defined near `822F27C0`); `829FF648` logs
@@ -378,6 +382,10 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
         std::fprintf(stderr, "GATEWATCH %02X\n", gcur);
       }
     }
+    // REPEATING SYNTH OFF 2026-09-10: trace-only mode. Forcing completion
+    // manufactured execution orders; synths stay available only as explicit
+    // timeout-triggered probes. Watchers above remain active.
+#if 0
     // TEST (reversible): synthesize missing drain completions, REPEATING.
     // The drain processes items sequentially; each can park on (a) the
     // 01-flag, (b) the gate byte, (c) the spin byte, with no producer
@@ -402,6 +410,7 @@ extern "C" void sub_82B67950(PPCContext& ctx, uint8_t* base) {
       *(base + gate_byte_addr) = 1;
       std::fprintf(stderr, "GATESYNTH set %08X\n", gate_byte_addr);
     }
+#endif
   }
   probe_o_82B67950(ctx, base);
 }
@@ -412,13 +421,37 @@ extern "C" void sub_8236C360(PPCContext& ctx, uint8_t* base) {
     logged = true;
     std::fprintf(stderr, "PROBE-HIT 8236C360 3d-proc\n");
   }
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  if (gid == 0x3009C018) {
+    std::fprintf(stderr, "3DPROC-WORKER lr=%08X r3=%08X\n", (uint32_t)ctx.lr,
+                 ctx.r3.u32);
+  }
   probe_o_8236C360(ctx, base);
+  if (gid == 0x3009C018) {
+    std::fprintf(stderr, "3DPROC-WORKER-EXIT ret=%08X\n", ctx.r3.u32);
+  }
 }
 REX_IMPORT(__imp__sub_822F33B8, probe_o_822F33B8, void());
 extern "C" void sub_822F33B8(PPCContext& ctx, uint8_t* base) {
   static int n = 0;
-  std::fprintf(stderr, "PROBE-HIT 822F33B8 bank-proc #%d\n", ++n);
+  int mine = ++n;
+  std::fprintf(stderr, "PROBE-HIT 822F33B8 bank-proc #%d lr=%08X\n", mine,
+               (uint32_t)ctx.lr);
   probe_o_822F33B8(ctx, base);
+  // If the bank job ever returns, its return + the spin byte reveal whether
+  // the +5 store ran. No EXIT line => worker parked inside (see status).
+  uint8_t b5 = 0xEE;
+  uint32_t dc = 0;
+  if (drain_item_addr >= 0x10000) {
+    uint32_t b = 0;
+    std::memcpy(&b, base + drain_item_addr + 0x5C, 4);
+    dc = __builtin_bswap32(b);
+    if (dc >= 0x10000 && dc < 0x84000000) {
+      b5 = *(base + dc + 5);
+    }
+  }
+  std::fprintf(stderr, "BANKPROC-EXIT #%d ret=%08X b5=%02X\n", mine,
+               ctx.r3.u32, b5);
 }
 
 REX_IMPORT(__imp__sub_822F47F8, probe_o_822F47F8, void());
@@ -475,6 +508,13 @@ extern "C" void sub_82CBC6B0(PPCContext& ctx, uint8_t* base) {
     ++n;
     std::fprintf(stderr, "SLEEPBYPASS arg=%u lr=%08X\n", ctx.r3.u32, lr);
   }
+  // REVERTED 2026-09-10: the null-object path natively performs one 100 ms
+  // ALERTABLE KeDelayExecutionThread then returns (r30 comes from the
+  // register, not [0]; the old comment rationale was wrong). Skipping it
+  // removes the spin loop's only kernel wait — and with it any APC/DPC
+  // delivery point on GameThread. Restore native pacing; if +5 still never
+  // sets, the APC theory is dead.
+#if 0
   if (lr == 0x82378828) {
     static bool logged = false;
     if (!logged) {
@@ -484,6 +524,7 @@ extern "C" void sub_82CBC6B0(PPCContext& ctx, uint8_t* base) {
     ctx.r3.u32 = 0;
     return;
   }
+#endif
   probe_o_82CBC6B0(ctx, base);
 }
 
@@ -885,23 +926,452 @@ extern "C" void sub_82BCD7B0(PPCContext& ctx, uint8_t* base) {
     std::fprintf(stderr, "BANK-R30 r30=%08X r6=%08X r30+16=%08X\n", r30, r6,
                  r30 + 16);
   }
-  std::lock_guard<std::mutex> lk(bank_table_mutex);
+
+  std::lock_guard<std::recursive_mutex> lk0(bank_table_mutex);
   probe_o_82BCD7B0(ctx, base);
+}
+// Worker-path trace (2026-09-10): the verdict worker (gid 0x3009C018)
+// enters 822F33B8 but never returns; per-gid first-entry + exit logs on
+// the chain 82BC9E10 -> 82BCA340 -> 82BC7C20 -> 822C0568 -> 82BC7FB0
+// isolate the deepest frame with ENTER but no EXIT (the park container).
+static bool pathlog_seen(uint32_t gid, uint32_t* tab, unsigned n) {
+  for (unsigned i = 0; i < n; ++i) {
+    if (tab[i] == gid) {
+      return true;
+    }
+    if (tab[i] == 0) {
+      tab[i] = gid;
+      return false;
+    }
+  }
+  return true;
+}
+#define PATH_PROBE(addr)                                                      \
+  REX_IMPORT(__imp__sub_##addr, probe_o_##addr, void());                      \
+  extern "C" void sub_##addr(PPCContext& ctx, uint8_t* base) {                \
+    uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object(); \
+    static uint32_t seen_in[8] = {0};                                         \
+    static uint32_t seen_out[8] = {0};                                        \
+    bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);            \
+    if (interesting || !pathlog_seen(gid, seen_in, 8)) {                      \
+      std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x##addr,     \
+                   gid, (uint32_t)ctx.lr);                                    \
+    }                                                                         \
+    probe_o_##addr(ctx, base);                                                \
+    if (interesting || !pathlog_seen(gid, seen_out, 8)) {                     \
+      std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x##addr,     \
+                   gid, ctx.r3.u32);                                          \
+    }                                                                         \
+  }
+PATH_PROBE(82BC7C20)
+// Resume-jump infrastructure (2026-09-10, TEST reversible): 82CA9260 is a
+// context-restore whose blr must transfer to the saved LR (822C05A8, inside
+// an ancestor 822C0568 frame). Generated code C++-returns instead. This
+// buffer lets the 82CA9260 override run the resume and longjmp back here,
+// skipping the dead dispatcher chain. Outermost 822C0568 wins the buffer.
+#include <csetjmp>
+static thread_local jmp_buf tls_resume_jb;
+static thread_local bool tls_resume_armed = false;
+REX_IMPORT(__imp__sub_822C0568, probe_o_822C0568, void());
+extern "C" void sub_822C0568(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen_in[8] = {0};
+  static uint32_t seen_out[8] = {0};
+  bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
+  if (interesting || !pathlog_seen(gid, seen_in, 8)) {
+    std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x822C0568,
+                 gid, (uint32_t)ctx.lr);
+  }
+  bool outer = !tls_resume_armed;
+  int lj = 0;
+  if (outer) {
+    tls_resume_armed = true;
+    lj = setjmp(tls_resume_jb);
+  }
+  if (lj == 0) {
+    probe_o_822C0568(ctx, base);
+  } else {
+    uint32_t gid2 = rex::system::XThread::GetCurrentThread()->guest_object();
+    std::fprintf(stderr, "RESUMED 822C0568 gid=%08X ret=%08X\n", gid2,
+                 ctx.r3.u32);
+  }
+  tls_resume_armed = false;
+  if (interesting || !pathlog_seen(gid, seen_out, 8)) {
+    std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x822C0568,
+                 gid, ctx.r3.u32);
+  }
+}
+PATH_PROBE(82BC7FB0)
+
+REX_IMPORT(__imp__sub_822C05F8, probe_o_822C05F8, void());
+extern "C" void sub_822C05F8(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen[8] = {0};
+  bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
+  if (interesting || !pathlog_seen(gid, seen, 8)) {
+    std::fprintf(stderr, "C05F8ENTER gid=%08X lr=%08X r3=%08X r4=%08X r5=%08X\n",
+                 gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32);
+  }
+  probe_o_822C05F8(ctx, base);
+  if (interesting) {
+    std::fprintf(stderr, "C05F8EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+  }
+}
+
+REX_IMPORT(__imp__sub_821E27C8, probe_o_821E27C8, void());
+extern "C" void sub_821E27C8(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen[8] = {0};
+  bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
+  if (interesting || !pathlog_seen(gid, seen, 8)) {
+    std::fprintf(stderr, "STORMENTER gid=%08X lr=%08X r3=%08X r4=%08X\n",
+                 gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32);
+  }
+  probe_o_821E27C8(ctx, base);
+  if (interesting) {
+    std::fprintf(stderr, "STORMEXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+  }
+}
+
+REX_IMPORT(__imp__sub_8219EE00, probe_o_8219EE00, void());
+extern "C" void sub_8219EE00(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen[8] = {0};
+  bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
+  uint32_t r1in = ctx.r1.u32;
+  if (interesting || !pathlog_seen(gid, seen, 8)) {
+    std::fprintf(stderr, "EE00ENTER gid=%08X lr=%08X r3=%08X r4=%08X\n",
+                 gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32);
+  }
+  probe_o_8219EE00(ctx, base);
+  if (interesting) {
+    std::fprintf(stderr, "EE00EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+    if (ctx.r1.u32 != r1in) {
+      std::fprintf(stderr, "R1PROPAGATE gid=%08X in=%08X out=%08X\n", gid,
+                   r1in, ctx.r1.u32);
+    }
+  }
+}
+REX_IMPORT(__imp__sub_8219F010, probe_o_8219F010, void());
+extern "C" void sub_8219F010(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  bool interesting = (gid == 0x3009C018);
+  uint32_t r29in = ctx.r29.u32;
+  uint32_t r1in = ctx.r1.u32;
+  static uint32_t seen10[8] = {0};
+  if (interesting || !pathlog_seen(gid, seen10, 8)) {
+    uint32_t r11 = ctx.r11.u32;
+    auto rd = [&](uint32_t a) -> uint32_t {
+      if (a < 0x10000 || a >= 0x84000000) {
+        return 0;
+      }
+      uint32_t b = 0;
+      std::memcpy(&b, base + a, 4);
+      return __builtin_bswap32(b);
+    };
+    uint32_t t1 = rd(r11 + 4);
+    uint32_t t2 = rd(t1);
+    uint32_t tgt = rd(t2 + 16);
+    std::fprintf(stderr, "F010ENTER gid=%08X lr=%08X r3=%08X r11=%08X bctr=%08X r1=%08X\n",
+                 gid, (uint32_t)ctx.lr, ctx.r3.u32, r11, tgt, ctx.r1.u32);
+  }
+  probe_o_8219F010(ctx, base);
+  if (interesting && (ctx.r29.u32 != r29in || ctx.r1.u32 != r1in)) {
+    std::fprintf(stderr, "R29CLOBBER gid=%08X in=%08X out=%08X r1in=%08X r1out=%08X lr=%08X\n",
+                 gid, r29in, ctx.r29.u32, r1in, ctx.r1.u32, (uint32_t)ctx.lr);
+    void* bt[16];
+    int nbt = backtrace(bt, 16);
+    backtrace_symbols_fd(bt, nbt, STDERR_FILENO);
+  }
+}
+
+// r1-balance probes (2026-09-10): 8219F010 returns with r1 +0x3D0 on the
+// worker, so a nested call leaks stack. Check each direct callee.
+#define R1BAL_PROBE(addr)                                                     \
+  REX_IMPORT(__imp__sub_##addr, probe_o_##addr, void());                      \
+  extern "C" void sub_##addr(PPCContext& ctx, uint8_t* base) {                \
+    uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object(); \
+    bool interesting = (gid == 0x3009C018);                                   \
+    uint32_t r1in = ctx.r1.u32;                                               \
+    probe_o_##addr(ctx, base);                                                \
+    if (interesting && ctx.r1.u32 != r1in) {                                  \
+      std::fprintf(stderr, "R1LEAK %08X gid=%08X in=%08X out=%08X\n",         \
+                   0x##addr, gid, r1in, ctx.r1.u32);                          \
+    }                                                                         \
+  }
+R1BAL_PROBE(82BCD1E8)
+R1BAL_PROBE(82BCCD58)
+R1BAL_PROBE(82BCCFF8)
+R1BAL_PROBE(82BCCE98)
+R1BAL_PROBE(82BB29D0)
+R1BAL_PROBE(82BB6CA0)
+R1BAL_PROBE(82BC68F0)
+R1BAL_PROBE(822AF338)
+R1BAL_PROBE(82BCBDC8)
+R1BAL_PROBE(8227B8B8)
+R1BAL_PROBE(82188CF0)
+R1BAL_PROBE(82BB1E58)
+R1BAL_PROBE(82BC6A18)
+R1BAL_PROBE(82BC6980)
+R1BAL_PROBE(82BC8490)
+R1BAL_PROBE(822CE098)
+R1BAL_PROBE(82BC9788)
+R1BAL_PROBE(82BCCB88)
+// TEST (2026-09-10, reversible): 82CA9260 is a context-restore whose blr
+// must transfer to the saved LR (822C05A8, inside an ancestor 822C0568
+// frame). Generated code C++-returns instead, running unreachable dispatcher
+// code with the resume-r1 -> cascade. Fix: run the body (restores regs),
+// then run the 822C05A8 resume inline and longjmp back to the ancestor
+// 822C0568 wrapper, abandoning the dead chain.
+#include "fable_ii_pch.h"
+REX_IMPORT(__imp__sub_82CA9260, probe_o_82CA9260, void());
+extern "C" void sub_82CA9260(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  uint32_t r1in = ctx.r1.u32;
+  uint64_t lrin = ctx.lr;
+  probe_o_82CA9260(ctx, base);
+  uint32_t lrout = (uint32_t)ctx.lr;
+  bool interesting = (gid == 0x3009C018);
+  if (tls_resume_armed && lrout == 0x822C05A8 && lrout != (uint32_t)lrin) {
+    if (interesting) {
+      std::fprintf(stderr, "RESUMEJUMP gid=%08X r1=%08X\n", gid, ctx.r1.u32);
+    }
+    // --- resume at 822C05A8 (mirrors sub_822C0568 loc_822C05A8..blr) ---
+    // cmpwi cr6,r3,0
+    ctx.cr6.compare<int32_t>(ctx.r3.s32, 0, ctx.xer);
+    // bne cr6,0x822c05d4
+    if (!ctx.cr6.eq) goto loc_822C05D4;
+    // lwz r31,1492(r1)
+    ctx.r31.u64 = REX_LOAD_U32(ctx.r1.u32 + 1492);
+    // lwz r11,1500(r1)
+    ctx.r11.u64 = REX_LOAD_U32(ctx.r1.u32 + 1500);
+    // lwz r4,1508(r1)
+    ctx.r4.u64 = REX_LOAD_U32(ctx.r1.u32 + 1508);
+    // mr r3,r31
+    ctx.r3.u64 = ctx.r31.u64;
+    // mtctr r11
+    ctx.ctr.u64 = ctx.r11.u64;
+    // bctrl
+    ctx.lr = 0x822C05C8;
+    REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);
+    // lwz r10,80(r1)
+    ctx.r10.u64 = REX_LOAD_U32(ctx.r1.u32 + 80);
+    // stw r10,92(r31)
+    REX_STORE_U32(ctx.r31.u32 + 92, ctx.r10.u32);
+    // b 0x822c05e0
+    goto loc_822C05E0;
+  loc_822C05D4:
+    // lwz r11,1492(r1)
+    ctx.r11.u64 = REX_LOAD_U32(ctx.r1.u32 + 1492);
+    // lwz r10,80(r1)
+    ctx.r10.u64 = REX_LOAD_U32(ctx.r1.u32 + 80);
+    // stw r10,92(r11)
+    REX_STORE_U32(ctx.r11.u32 + 92, ctx.r10.u32);
+  loc_822C05E0:
+    // lwz r3,1440(r1)
+    ctx.r3.u64 = REX_LOAD_U32(ctx.r1.u32 + 1440);
+    // addi r1,r1,1472
+    ctx.r1.s64 = ctx.r1.s64 + 1472;
+    // lwz r12,-8(r1)
+    ctx.r12.u64 = REX_LOAD_U32(ctx.r1.u32 + -8);
+    // mtlr r12
+    ctx.lr = ctx.r12.u64;
+    // ld r31,-16(r1)
+    ctx.r31.u64 = REX_LOAD_U64(ctx.r1.u32 + -16);
+    // blr -> abandon the dead chain, resume the ancestor 822C0568 frame
+    longjmp(tls_resume_jb, 1);
+  }
+  if (interesting && ctx.r1.u32 != r1in) {
+    std::fprintf(stderr, "R1LEAK %08X gid=%08X in=%08X out=%08X\n",
+                 0x82CA9260, gid, r1in, ctx.r1.u32);
+  }
+}
+R1BAL_PROBE(82BCC6F0)
+R1BAL_PROBE(82BCCAB8)
+R1BAL_PROBE(82BCCDE0)
+R1BAL_PROBE(82CA9798)
+R1BAL_PROBE(82CB5B20)
+static uint32_t srs_read(PPCContext& ctx, uint8_t* base, uint32_t addr) {
+  if (addr < 0x10000 || addr >= 0x84000000) {
+    return 0xDDDDDDDD;
+  }
+  uint32_t b = 0;
+  std::memcpy(&b, base + addr, 4);
+  return __builtin_bswap32(b);
+}
+// U64 BE store at [r1+off]: low 32 bits live 4 bytes higher than an stw slot.
+static uint32_t srs_read64(PPCContext& ctx, uint8_t* base, uint32_t r1,
+                           int off) {
+  return srs_read(ctx, base, r1 + off + 4);
+}
+struct SRFrame {
+  uint32_t r1;
+  uint32_t r29;
+  uint32_t lr;
+};
+static SRFrame sr_stack[512];
+static unsigned sr_depth = 0;
+static void sr_push(uint32_t r1, uint32_t r29, uint32_t lr) {
+  if (sr_depth < 512) {
+    sr_stack[sr_depth].r1 = r1;
+    sr_stack[sr_depth].r29 = r29;
+    sr_stack[sr_depth].lr = lr;
+    ++sr_depth;
+  }
+}
+static bool sr_pop(uint32_t* r1, uint32_t* r29, uint32_t* lr) {
+  if (sr_depth == 0) {
+    return false;
+  }
+  --sr_depth;
+  *r1 = sr_stack[sr_depth].r1;
+  *r29 = sr_stack[sr_depth].r29;
+  *lr = sr_stack[sr_depth].lr;
+  return true;
+}
+REX_IMPORT(__imp____savegprlr_26, probe_o_save26, void());
+extern "C" void __savegprlr_26(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  bool interesting = (gid == 0x3009C018);
+  uint32_t r1 = ctx.r1.u32;
+  probe_o_save26(ctx, base);
+  if (interesting) {
+    static unsigned long sq = 0;
+    sr_push(r1, ctx.r29.u32, (uint32_t)ctx.lr);
+    std::fprintf(stderr, "SAVE26 #%lu gid=%08X r1=%08X r29=%08X lr=%08X s29=%08X slr=%08X depth=%u\n",
+                 ++sq, gid, r1, ctx.r29.u32, (uint32_t)ctx.lr,
+                 srs_read64(ctx, base, r1, -32), srs_read(ctx, base, r1 - 8),
+                 sr_depth);
+  }
+}
+REX_IMPORT(__imp____restgprlr_26, probe_o_rest26, void());
+extern "C" void __restgprlr_26(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  bool interesting = (gid == 0x3009C018);
+  uint32_t r1 = ctx.r1.u32;
+  if (interesting) {
+    static unsigned long rq = 0;
+    uint32_t s29 = srs_read64(ctx, base, r1, -32);
+    uint32_t slr = srs_read(ctx, base, r1 - 8);
+    uint32_t er1 = 0, er29 = 0, elr = 0;
+    bool ok = sr_pop(&er1, &er29, &elr);
+    const char* verdict = !ok ? "STACK-EMPTY"
+                          : (er1 != r1 ? "R1-MISMATCH"
+                                       : (s29 != er29 || slr != elr ? "SLOT-CHANGED" : "ok"));
+    std::fprintf(stderr, "REST26PRE #%lu gid=%08X r1=%08X s29=%08X slr=%08X exp-r1=%08X exp-r29=%08X exp-lr=%08X %s depth=%u\n",
+                 ++rq, gid, r1, s29, slr, er1, er29, elr, verdict, sr_depth);
+  }
+  probe_o_rest26(ctx, base);
+  if (interesting) {
+    std::fprintf(stderr, "REST26POST gid=%08X r29=%08X lr=%08X\n", gid,
+                 ctx.r29.u32, (uint32_t)ctx.lr);
+  }
+}
+
+REX_IMPORT(__imp__sub_822DF280, probe_o_822DF280, void());
+extern "C" void sub_822DF280(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen[8] = {0};
+  bool interesting = (gid == 0x3009C018);
+  if (interesting || !pathlog_seen(gid, seen, 8)) {
+    // Two-level link snapshot: l20=[r3+20], l20d=[[r3+20]+4] deref [0].
+    uint32_t l20 = 0xEEEEEEEE, l20d = 0xEEEEEEEE;
+    uint32_t a3 = ctx.r3.u32;
+    if (a3 >= 0x10000 && a3 < 0x84000000) {
+      uint32_t b = 0;
+      std::memcpy(&b, base + a3 + 20, 4);
+      l20 = __builtin_bswap32(b);
+      if (l20 >= 0x10000 && l20 < 0x84000000) {
+        uint32_t c = 0;
+        std::memcpy(&c, base + l20 + 4, 4);
+        uint32_t r10 = __builtin_bswap32(c);
+        if (r10 >= 0x10000 && r10 < 0x84000000) {
+          uint32_t d = 0;
+          std::memcpy(&d, base + r10, 4);
+          l20d = __builtin_bswap32(d);
+        } else {
+          l20d = r10;
+        }
+      }
+    }
+    std::fprintf(stderr, "F280ENTER gid=%08X lr=%08X r3=%08X r4=%08X l20=%08X l20d=%08X\n",
+                 gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32, l20, l20d);
+  }
+  probe_o_822DF280(ctx, base);
+  if (interesting) {
+    std::fprintf(stderr, "F280EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+  }
+}
+
+
+// Callback-drain sampler (2026-09-10): 822C0568 loops on 83000200 until it
+// returns 0, then takes an indirect call. Counts iterations to distinguish
+// a never-emptying callback queue (counter explodes) from a parked indirect
+// target (counter static).
+REX_IMPORT(__imp__sub_83000200, probe_o_83000200, void());
+
+REX_IMPORT(__imp__sub_8229A518, probe_o_8229A518, void());
+extern "C" void sub_8229A518(PPCContext& ctx, uint8_t* base) {
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen[8] = {0};
+  bool interesting = (gid == 0x3009C018);
+  if (interesting || !pathlog_seen(gid, seen, 8)) {
+    std::fprintf(stderr, "A518ENTER gid=%08X lr=%08X r3=%08X r4=%08X r5=%08X r6=%08X\n",
+                 gid, (uint32_t)ctx.lr, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32,
+                 ctx.r6.u32);
+  }
+  probe_o_8229A518(ctx, base);
+  if (interesting) {
+    std::fprintf(stderr, "A518EXIT gid=%08X ret=%08X\n", gid, ctx.r3.u32);
+  }
+}
+extern "C" void sub_83000200(PPCContext& ctx, uint8_t* base) {
+  static unsigned long n = 0;
+  ++n;
+  if (n == 1 || (n % 1048576) == 0) {
+    std::fprintf(stderr, "CBDRAIN #%lu ret=? lr=%08X\n", n,
+                 (uint32_t)ctx.lr);
+  }
+  probe_o_83000200(ctx, base);
 }
 
 REX_IMPORT(__imp__sub_82BCA340, probe_o_82BCA340, void());
 extern "C" void sub_82BCA340(PPCContext& ctx, uint8_t* base) {
-  std::lock_guard<std::mutex> lk(bank_table_mutex);
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen_in[8] = {0};
+  static uint32_t seen_out[8] = {0};
+  bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
+  if (interesting || !pathlog_seen(gid, seen_in, 8)) {
+    std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x82BCA340,
+                 gid, (uint32_t)ctx.lr);
+  }
+  std::lock_guard<std::recursive_mutex> lk1(bank_table_mutex);
   probe_o_82BCA340(ctx, base);
+  if (interesting || !pathlog_seen(gid, seen_out, 8)) {
+    std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x82BCA340,
+                 gid, ctx.r3.u32);
+  }
 }
 REX_IMPORT(__imp__sub_82BC9E10, probe_o_82BC9E10, void());
 extern "C" void sub_82BC9E10(PPCContext& ctx, uint8_t* base) {
-  std::lock_guard<std::mutex> lk(bank_table_mutex);
+  uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object();
+  static uint32_t seen_in[8] = {0};
+  static uint32_t seen_out[8] = {0};
+  bool interesting = (gid == 0x3009C018) || (gid == 0x30097018);
+  if (interesting || !pathlog_seen(gid, seen_in, 8)) {
+    std::fprintf(stderr, "PATHENTER %08X gid=%08X lr=%08X\n", 0x82BC9E10,
+                 gid, (uint32_t)ctx.lr);
+  }
+  std::lock_guard<std::recursive_mutex> lk2(bank_table_mutex);
   probe_o_82BC9E10(ctx, base);
+  if (interesting || !pathlog_seen(gid, seen_out, 8)) {
+    std::fprintf(stderr, "PATHEXIT %08X gid=%08X ret=%08X\n", 0x82BC9E10,
+                 gid, ctx.r3.u32);
+  }
 }
 REX_IMPORT(__imp__sub_82BC9EA0, probe_o_82BC9EA0, void());
 extern "C" void sub_82BC9EA0(PPCContext& ctx, uint8_t* base) {
-  std::lock_guard<std::mutex> lk(bank_table_mutex);
+  std::lock_guard<std::recursive_mutex> lk3(bank_table_mutex);
   probe_o_82BC9EA0(ctx, base);
 }
 
@@ -935,6 +1405,9 @@ extern "C" void sub_82CC2028(PPCContext& ctx, uint8_t* base) {
     std::fprintf(stderr, "FLAGWAIT obj=%08X flag=%02X lr=%08X\n", o, f,
                  (uint32_t)ctx.lr);
   }
+  // REVERTED 2026-09-10 (see 82CBC6B0 note): restore the native 100 ms
+  // alertable delay. Null object => single KeDelay + return, no park.
+#if 0
   if (ctx.r4.u32 < 0x10000) {
     // TEST (reversible): null-object wait. On HW `r4` is never null here;
     // under protect_zero=0 the zero page accumulates silent null-write
@@ -950,6 +1423,7 @@ extern "C" void sub_82CC2028(PPCContext& ctx, uint8_t* base) {
     ctx.r3.u32 = 0;
     return;
   }
+#endif
   probe_o_82CC2028(ctx, base);
 }
 REX_IMPORT(__imp__sub_823784A0, probe_o_823784A0, void());
@@ -994,6 +1468,16 @@ extern "C" void sub_823784A0(PPCContext& ctx, uint8_t* base) {
     }
     std::fprintf(stderr, "VIRTTGT vt=%08X [16]=%08X [20]=%08X [24]=%08X [28]=%08X\n",
                  vt, s16, s20, s24, s28);
+    // ITEM BEGIN snapshot (2026-09-10): 822F3640 exits only when
+    // [drainctx+52]!=0 && [drainctx+5]!=0 (consumes +52, returns +5).
+    // drainctx lives at item+0x5C (last word of the +0x40 row).
+    uint32_t dctx = (a3 >= 0x10000) ? rd(a3 + 0x5C) : 0;
+    if (dctx >= 0x10000 && dctx < 0x84000000) {
+      uint32_t w52 = 0;
+      std::memcpy(&w52, base + dctx + 52, 4);
+      std::fprintf(stderr, "DRAINCTX ctx=%08X b5=%02X w52=%08X\n", dctx,
+                   *(base + dctx + 5), __builtin_bswap32(w52));
+    }
     // Drain-wait exit gate (0x823787F0): virtual [vtable+16] on the object
     // at global [0x8349E6EC] (r28=0x834A0000-ish, [r28-6420]). Resolve it.
     uint32_t gobj = rd(0x8349E6EC);
@@ -1090,12 +1574,31 @@ extern "C" void sub_822F3640(PPCContext& ctx, uint8_t* base) {
     static unsigned long sn = 0;
     uint32_t r3v = ctx.r3.u32;
     uint8_t b5 = 0xEE;
-    if (r3v >= 0x10000) {
+    if (r3v >= 0x10000 && r3v < 0x84000000) {
       b5 = *(base + r3v + 5);
     }
-    if ((++sn % 64) == 1) {
-      std::fprintf(stderr, "SPIN34 #%lu r3=%08X b5=%02X\n", sn, r3v, b5);
+    // TRACE VOLUME: change-only + rare heartbeat. The loop polls at ~7M/s
+    // with the 100 ms wait bypassed; every-64th sampling floods I/O (~110k
+    // lines/s) and perturbs scheduling. b5/w52 transitions are the signal
+    // (822F3640 needs both nonzero).
+    static uint8_t sb5 = 0xEE;
+    static uint32_t sw52 = 0xEEEEEEEE;
+    static uint32_t sr3 = 0;
+    uint32_t w52 = 0xEEEEEEEE;
+    if (r3v >= 0x10000 && r3v < 0x84000000) {
+      std::memcpy(&w52, base + r3v + 52, 4);
+      w52 = __builtin_bswap32(w52);
     }
+    ++sn;
+    if (b5 != sb5 || w52 != sw52 || r3v != sr3 || (sn % 1048576) == 1) {
+      sb5 = b5;
+      sw52 = w52;
+      sr3 = r3v;
+      std::fprintf(stderr, "SPIN34 #%lu r3=%08X b5=%02X w52=%08X\n", sn,
+                   r3v, b5, w52);
+    }
+    // REPEATING SYNTH OFF 2026-09-10: trace-only mode (see flag/gate note).
+#if 0
     // TEST (reversible): synthesize the spin event, REPEATING. Post-gate
     // the loop spins on 822F3640's return ([r3+5]); nothing ever sets it.
     // Re-fire on cooldown while parked; watch for 822F2608 after each.
@@ -1111,6 +1614,7 @@ extern "C" void sub_822F3640(PPCContext& ctx, uint8_t* base) {
       *(base + r3v + 5) = 1;
       std::fprintf(stderr, "SPINSYNTH set %08X+5\n", r3v);
     }
+#endif
   }
   probe_o_822F3640(ctx, base);
 }
