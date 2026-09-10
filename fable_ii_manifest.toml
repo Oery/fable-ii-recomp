@@ -107,6 +107,15 @@ end = 0x82E8F9F4
 [entrypoint.functions.82267568]
 end = 0x82267574
 
+# Guarded virtual-dispatch stub (cmplwi/beqlr + vtable bctrl+blr).
+# Evidence: FATAL at 0x825EF568 2026-09-11, early boot.
+[entrypoint.functions.825EF568]
+end = 0x825EF588
+
+# Constant getter (li/blr). Evidence: FATAL at 0x82996258 2026-09-11.
+[entrypoint.functions.82996258]
+end = 0x82996260
+
 # Virtual-dispatch thunk (vtable slot, offset28). Evidence: FATAL call to
 # 0x82C0B400 2026-09-10; 9-insn lwz/mtctr/bctrl+blr, end 0x82C0B424.
 [entrypoint.functions.82C0B400]

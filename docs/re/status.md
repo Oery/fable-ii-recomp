@@ -1296,3 +1296,31 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   /usr/lib: glibc conflict). Do NOT run two games at once (shm/CPU).
 - New-game path playable to FATALs: 822142D0, 82267C88, 82E8F9E8,
   82267568 (tiny getters, all registered). Visible run in progress.
+
+## Night stop 2026-09-11 ~01:30 — title + Bowerstone load, M7/M8 edge
+- M7 TITLE CONFIRMED visibly (FABLE II logo + "Pour commencer, appuyez
+  sur A" + full 3D scene). Demo/attract loop identified (not gameplay).
+  User drove: A (menu) -> A (new game) -> left (boy) -> A (confirm) with
+  a physical controller; reached Bowerstone loading screen (tips cycle,
+  3D character renders). Load never completes in-run: 0x34 fault loop
+  in twin-thunk slot 82C4C340 (13k-300k faults, one thread).
+- 0x34 analysis (CHAIN tracking): faulting calls are DIRECT vtable
+  dispatches to C340 (silent: tls=0, non-worker), not the C320 chain
+  (1 logged chained instance had r11=0 too). [r3+4]=0 on a heap object:
+  consumer racing an unfilled field; every prior race self-resolved.
+  Verdict: infinitely SLOW, not infinite (producer render-starved at
+  ~1 FPS). Window shrunk to 960x540 (survived, still loading).
+- vpad (scripts/vpad.py): virtual Xbox 360 pad via uinput (VID 045e),
+  buttons+dpad (AbsInfo(0,-1,1,0,0,0) form required; persistent process
+  takes line commands on stdin). Long holds (3-5 s) required at 1 FPS;
+  taps fall between frames. Start breaks demo->title; A exits demo->menu
+  (menus return to attract if idle ~30 s: screenshot quickly after input).
+- Current binary is NOISY (PROBE_LOG re-enabled for 0x34 replay) and
+  SLOW. First job tomorrow: re-silence, then long quiet load attempt.
+- Frontier queue added: 822142D0, 82267C88, 82E8F9E8, 82267568 (tiny
+  getters), 825EF568, 82996258. scripts/grind-frontier automates the
+  cycle (refuses insane/overlap/branchy targets).
+- Resume point: relaunch visible quiet run, vpad drive (start:3000,
+  wait title, a:5000 xN with <15 s checks), Bowerstone load needs
+  30-60+ min at 1 FPS. Consider: smaller window, release build, attack
+  the 0x34 producer if load still never completes.
