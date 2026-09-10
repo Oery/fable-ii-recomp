@@ -77,8 +77,49 @@ end = 0x82C867F4
 [entrypoint.functions.82B84350]
 end = 0x82B84358
 
+# Sibling thunk slot (offset16) sharing CB00's tail; chains to it.
+[entrypoint.functions.829FCAE8]
+end = 0x829FCB00
+
 # Virtual-dispatch thunk (vtable slot, offset12). Evidence: FATAL call to
 # 0x829FCB00 2026-09-10 after resume-jump unblocked the drain; bytes decode
 # to lwz/mtctr/bctrl + post-call loop ending in blr at 0x829FCBA0.
-[entrypoint.functions.829FCB00]
-end = 0x829FCBA4
+ [entrypoint.functions.829FCB00]
+ end = 0x829FCBA4
+
+# Virtual-dispatch thunk (vtable slot, offset28). Evidence: FATAL call to
+# 0x82C0B400 2026-09-10; 9-insn lwz/mtctr/bctrl+blr, end 0x82C0B424.
+[entrypoint.functions.82C0B400]
+end = 0x82C0B424
+
+# Virtual-dispatch thunk (vtable slot, offset44). Evidence: FATAL call to
+# 0x82C09188 2026-09-10; ends blr 0x82C091AC, end 0x82C091B0.
+[entrypoint.functions.82C09188]
+end = 0x82C091B0
+
+# Thunk groups: vtable slots sharing a tail body. Codegen rejects overlaps,
+# and mid-group slots FATAL, so each slot is an ADJACENT entry ending where
+# the next begins; hooks.cpp chains them (each override runs its stub then
+# calls the next, mirroring HW fall-through-on-return).
+# Twin group (offsets 8/16), body has real prologue at C360.
+[entrypoint.functions.82C4C320]
+end = 0x82C4C340
+
+[entrypoint.functions.82C4C340]
+end = 0x82C4C360
+
+[entrypoint.functions.82C4C360]
+end = 0x82C4C3B4
+
+# Triple group, body prologue at C630.
+[entrypoint.functions.82C4C5C8]
+end = 0x82C4C5E8
+
+[entrypoint.functions.82C4C5E8]
+end = 0x82C4C610
+
+[entrypoint.functions.82C4C610]
+end = 0x82C4C630
+
+[entrypoint.functions.82C4C630]
+end = 0x82C4C670

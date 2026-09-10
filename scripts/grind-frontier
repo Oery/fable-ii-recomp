@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Autonomous undiscovered-function grind: run -> FATAL addr -> decode end ->
+# manifest -> codegen -> build -> rerun, until a run reaches timeout (success)
+# or a FATAL needs manual review. Run in background and poll.
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+max_iters="${1:-20}"
+run_seconds="${RUN_SECONDS:-600}"
+
+for ((k=1; k<=max_iters; k++)); do
+  echo "=== grind iter $k/$max_iters ($(date -u +%H:%M:%S)) ==="
+  rm -f /dev/shm/xenia_memory_*
+  RUN_SECONDS="$run_seconds" nix develop path:. -c env RUN_SECONDS="$run_seconds" SDL_VIDEODRIVER=offscreen scripts/run >"logs/grind-$k.log" 2>&1
+  status=$?
+  if [[ "$status" != "134" && "$status" != "137" ]]; then
+    # Not abort/timeout-kill: could be timeout-reached (137/124) or real exit.
+    echo "run exit $status without FATAL pattern; checking logs"
+  fi
+  latest="$(ls -t build/native/logs/fable_ii_*.log | head -1)"
+  fatal="$(rg -o -m1 'guest address 0x[0-9A-Fa-f]+' "$latest" | rg -o '0x[0-9A-Fa-f]+' || true)"
+  if [[ -z "$fatal" ]]; then
+    echo "NO FATAL in $latest: run survived (exit $status). GRIND DONE."
+    exit 0
+  fi
+  echo "FATAL at $fatal; decoding..."
+  if ! python3 - "$fatal" <<'EOF'
+import struct, re, sys
+a = int(sys.argv[1], 16)
+base = 0x82000000
+d = open('tooling/guest-image.bin','rb').read()
+if a < base or a >= base + len(d) or a % 4:
+    sys.exit('bad address')
+# already covered?
+man = open('fable_ii_manifest.toml').read()
+for m in re.finditer(r'\[entrypoint\.functions\.([0-9A-Fa-f]+)\]\s*\nend\s*=\s*(0x[0-9A-Fa-f]+)', man):
+    s, e = int(m.group(1), 16), int(m.group(2), 16)
+    if s <= a < e:
+        sys.exit(f'ALREADY-COVERED by [{s:#x},{e:#x})')
+# already generated (stale binary)? caller rebuilds; skip here.
+off = a - base
+words = struct.unpack('>513I', d[off:off+513*4])
+first = words[0]
+if first in (0, 0xFFFFFFFF):
+    sys.exit('insane first word')
+end = None
+for i, w in enumerate(words):
+    if w in (0x00000000,) and i < 4:
+        continue
+    if w == 0x4E800020:
+        end = a + i*4 + 4
+        break
+    if (w & 0xFC000000) == 0x48000000 and (w & 1) == 0 and i > 2:
+        sys.exit(f'unconditional branch before blr at {a+i*4:#x} (manual)')
+if end is None:
+    sys.exit('no blr in range (manual)')
+assert end > a and end - a < 0x10000
+entries = [(int(m.group(1), 16), int(m.group(2), 16)) for m in
+            re.finditer(r'\[entrypoint\.functions\.([0-9A-Fa-f]+)\]\s*\nend\s*=\s*(0x[0-9A-Fa-f]+)', man)]
+for s, e in entries:
+    if a < e and s < end:
+        sys.exit(f'OVERLAPS [{s:#x},{e:#x}) (manual chain treatment?)')
+with open('fable_ii_manifest.toml','a') as f:
+    f.write(f"\n[entrypoint.functions.{a:08X}]\nend = 0x{end:08X}\n")
+print(f'added [{a:#08x},{end:#08x})')
+EOF
+  then
+    echo "decoder refused; MANUAL REVIEW needed."
+    exit 2
+  fi
+  echo "codegen..."
+  ./rexglue-sdk/out/linux-amd64/rexgluerd codegen ./fable_ii_manifest.toml 2>&1 | tail -1
+  echo "build..."
+  if ! nix develop path:. -c cmake --build build/native --target fable_ii -j 12 2>&1 | tail -1; then
+    echo "BUILD FAILED; manual review."
+    exit 3
+  fi
+done
+echo "max iters reached."
+exit 4

@@ -1263,3 +1263,19 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   Proper fix = codegen mtlr+blr->indirect-jump + mid-function targets.
 - Next: grind the new frontier queue (undiscovered functions as FATALs
   arrive), then populate/menu/title per the headless plan.
+
+## Frontier grind + worker park 2026-09-10 ~22:00
+- Post-resume runs advance minutes then FATAL on undiscovered vtable
+  thunks. Cleared: 829FCB00, 82C0B400, 82C09188, 82C4C320, 82C4C5C8.
+  Twin/triple slot groups sharing a tail are ADJACENT manifest entries
+  (codegen rejects overlaps); hooks.cpp THUNK_CHAIN overrides mirror HW
+  fall-through-on-return. Sibling slots (82C4C340, 829FCAE8) pre-added.
+- scripts/grind-frontier automates run->FATAL->decode->manifest->codegen
+  ->build (refuses insane/overlapping/branchy targets for manual review).
+- New stall (no faults, worker silent): worker parks deterministically in
+  82C65D80 (SAVE26 lr=82C65D88, same r1 both runs). No backward loop in
+  82C65D80 -> blocked in a callee. PARK_PROBE (every worker entry/exit)
+  on 82CA3700/82366210/822F54C8; 82200688 already has a wrapper (by
+  elimination if the three stay balanced). ptrace denied, so no live GDB.
+- Debt unchanged: codegen bypass (re-apply after each cmake configure:
+  configure rewrites generated/rexglue.cmake), shm cleanup per run.

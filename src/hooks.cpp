@@ -1191,6 +1191,37 @@ R1BAL_PROBE(82BCCAB8)
 R1BAL_PROBE(82BCCDE0)
 R1BAL_PROBE(82CA9798)
 R1BAL_PROBE(82CB5B20)
+// Thunk-slot chains (2026-09-10): vtable slots sharing a tail body are
+// adjacent manifest entries; HW falls through on bctrl-return, so each
+// override runs its stub then explicitly calls the next slot/body.
+#define THUNK_CHAIN(from, to) \
+  REX_IMPORT(__imp__sub_##from, probe_o_##from, void()); \
+  extern "C" void sub_##to(PPCContext& ctx, uint8_t* base); \
+  extern "C" void sub_##from(PPCContext& ctx, uint8_t* base) { \
+    probe_o_##from(ctx, base); \
+    sub_##to(ctx, base); \
+  }
+THUNK_CHAIN(82C4C320, 82C4C340)
+THUNK_CHAIN(82C4C340, 82C4C360)
+THUNK_CHAIN(82C4C5C8, 82C4C5E8)
+THUNK_CHAIN(82C4C5E8, 82C4C610)
+THUNK_CHAIN(82C4C610, 82C4C630)
+THUNK_CHAIN(829FCAE8, 829FCB00)
+// Park probes (2026-09-10): worker enters 82C65D80 and never returns.
+// Log EVERY worker entry/exit on its plausible-blocking callees; the one
+// with ENTER-but-no-EXIT is the park. Cold paths only.
+#define PARK_PROBE(addr) \
+  REX_IMPORT(__imp__sub_##addr, probe_o_##addr, void()); \
+  extern "C" void sub_##addr(PPCContext& ctx, uint8_t* base) { \
+    uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object(); \
+    bool w = (gid == 0x3009C018); \
+    if (w) std::fprintf(stderr, "PARKIN %08X r1=%08X\n", 0x##addr, ctx.r1.u32); \
+    probe_o_##addr(ctx, base); \
+    if (w) std::fprintf(stderr, "PARKOUT %08X\n", 0x##addr); \
+  }
+PARK_PROBE(82CA3700)
+PARK_PROBE(82366210)
+PARK_PROBE(822F54C8)
 static uint32_t srs_read(PPCContext& ctx, uint8_t* base, uint32_t addr) {
   if (addr < 0x10000 || addr >= 0x84000000) {
     return 0xDDDDDDDD;
