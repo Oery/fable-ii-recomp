@@ -1384,3 +1384,35 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   red-tint verdict, release-build perf (~1 FPS llvmpipe).
 - Live state: game (run 512, Bowerstone gameplay) + Xvfb :98 + vpad all
   persist via hub. Binary build/native/fable_ii @17:19 is the M8 binary.
+
+## GPU attempt 2026-09-11 ~17:40-18:15 (user asked; llvmpipe stays default)
+
+- Nix-pinned NVIDIA userspace BUILT: `(linuxPackages.nvidia_x11_latest.override
+  { libsOnly = true; })` from the locked nixpkgs = 610.57.04, EXACT match for
+  the loaded kernel module. Out-link /tmp/nvidia-libs (lib/ + ICD json with
+  absolute store path). Repro: NIXPKGS_ALLOW_UNFREE=1 + --impure (unfree).
+  No flake change; no kernel build. /tmp/nvk (host-lib staging) and /tmp/nvkx
+  (host X11) are SUPERSEDED experiments, not needed.
+- ICD negotiation saga, all resolved: nix loader + nix ICD failed inside
+  `nix develop` but worked outside it; root cause never isolated to a var
+  (159-var bisect: all innocent; env -i segfaults on locale stripping).
+  Current recipe that WORKS: VK_ICD_FILENAMES=/tmp/nvidia-libs/.../nvidia_icd.json
+  (+ optional VK_LOADER_LAYERS_DISABLE="~implicit~"), LD_LIBRARY_PATH with
+  /tmp/nvidia-libs/lib FIRST. Instance + RTX 3060 device creation PROVEN
+  (519.log: Using "NVIDIA GeForce RTX 3060", driver store path).
+- Offscreen NVIDIA (SDL_VIDEODRIVER=offscreen): 120 s boot, ZERO violations,
+  ZERO FATALs, VRAM 183 MiB during / 9 MiB after (no leak). Device +
+  command-processor path healthy.
+- Windowed NVIDIA on Xvfb :98: deterministic native SIGSEGV ~0.6 s after
+  device creation (exit 139), no window, no error log (110-line log ends at
+  device line). Under gdb the same run reaches 3D guest code and stops at
+  the BENIGN 821E27C8:1049 marching store (debugger intercepts before the
+  ReXGlue handler). Suspect: surface/swapchain creation on a GLX-less Xvfb
+  (nix Xvfb advertises 22 extensions, no GLX; +extension GLX didn't take).
+  NVIDIA WSI needs its X driver in the X server. No video-group membership
+  for a real Xorg either (oery lacks `video`; card1 is root:video).
+- Combined with 09-10 (:0 real Xorg: BLACK + GPU 66% + VRAM 1.6->8.9 GB leak):
+  even where presentation exists, frames are wrong. Next GPU steps need a
+  real NVIDIA X screen AND likely Xenos-side work (fragment stores/atomics
+  per the vulkan_require_* cvars). llvmpipe remains the correct-rendering
+  (slow) default. Parked here; no game-code impact (all experiments env-only).
