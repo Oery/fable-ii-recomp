@@ -11,9 +11,18 @@ BTN = {
     'lb': e.BTN_TL, 'rb': e.BTN_TR, 'back': e.BTN_SELECT, 'start': e.BTN_START,
     'l3': e.BTN_THUMBL, 'r3': e.BTN_THUMBR,
 }
+HAT = {
+    'left': (-1, 0), 'right': (1, 0), 'up': (0, -1), 'down': (0, 1),
+}
 CAP = {
     e.EV_KEY: list(BTN.values()),
-    e.EV_ABS: [(e.ABS_HAT0X, AbsInfo(0, -1, 1, 0, 0, 0)),
+    e.EV_ABS: [(e.ABS_X, AbsInfo(0, -32768, 32767, 16, 128, 0)),
+               (e.ABS_Y, AbsInfo(0, -32768, 32767, 16, 128, 0)),
+               (e.ABS_RX, AbsInfo(0, -32768, 32767, 16, 128, 0)),
+               (e.ABS_RY, AbsInfo(0, -32768, 32767, 16, 128, 0)),
+               (e.ABS_Z, AbsInfo(0, 0, 255, 0, 0, 0)),
+               (e.ABS_RZ, AbsInfo(0, 0, 255, 0, 0, 0)),
+               (e.ABS_HAT0X, AbsInfo(0, -1, 1, 0, 0, 0)),
                (e.ABS_HAT0Y, AbsInfo(0, -1, 1, 0, 0, 0))],
 }
 ui = UInput(CAP, name='Microsoft X-Box 360 pad', vendor=0x45E, product=0x28E,
@@ -26,8 +35,31 @@ for raw in sys.stdin:
     if cmd == 'quit':
         break
     ms = 120
-    if ':' in cmd:
-        cmd, ms = cmd.split(':')[0], int(cmd.split(':')[1])
+    if raw.strip().lower().startswith('stick'):
+        cmd = raw.strip().lower()
+    else:
+        if ':' in cmd:
+            cmd, ms = cmd.split(':')[0], int(cmd.split(':')[1])
+    if cmd.startswith('stick'):
+        # stick:<x>,<y>[:<ms>]  x,y in -100..100 (left stick), e.g. stick:0,-100:3000
+        parts = cmd.split(':')
+        try:
+            x, y = (int(v) for v in parts[1].split(','))
+            sms = int(parts[2]) if len(parts) > 2 else ms
+        except (IndexError, ValueError):
+            print(f'bad stick cmd: {cmd}', flush=True)
+            continue
+        xv = max(-32767, min(32767, x * 32767 // 100))
+        yv = max(-32767, min(32767, y * 32767 // 100))
+        ui.write(e.EV_ABS, e.ABS_X, xv)
+        ui.write(e.EV_ABS, e.ABS_Y, yv)
+        ui.syn()
+        time.sleep(sms / 1000)
+        ui.write(e.EV_ABS, e.ABS_X, 0)
+        ui.write(e.EV_ABS, e.ABS_Y, 0)
+        ui.syn()
+        print(f'sent {cmd}', flush=True)
+        continue
     if cmd in BTN:
         ui.write(e.EV_KEY, BTN[cmd], 1)
         ui.syn()
