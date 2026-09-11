@@ -292,3 +292,13 @@ end = 0x824D5704
 # (zero 0x34 faults).
 [entrypoint.functions.822D6678]
 end = 0x822D6858
+
+# Validity-check loop with two exits (blr at 0x82E861C0) plus constant-true
+# return thunk at 0x82E861C4 (`li r3,1; blr`, no store). Evidence: FATAL call
+# to 0x82E86188 2026-09-11 in save-xenia run at menu navigation after a
+# successful bulk save (zero 0x34 faults).
+[entrypoint.functions.82E86188]
+end = 0x82E861C4
+
+[entrypoint.functions.82E861C4]
+end = 0x82E861CC
