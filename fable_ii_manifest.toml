@@ -77,7 +77,8 @@ end = 0x82C867F4
 [entrypoint.functions.82B84350]
 end = 0x82B84358
 
-# Sibling thunk slot (offset16) sharing CB00's tail; chains to it.
+# Sibling thunk slot (offset16); ends where CB00 begins (codegen adjacency only,
+# no native chaining: independent bctr-dispatch thunk like the others).
 [entrypoint.functions.829FCAE8]
 end = 0x829FCB00
 
@@ -126,10 +127,43 @@ end = 0x82C0B424
 [entrypoint.functions.82C09188]
 end = 0x82C091B0
 
-# Thunk groups: vtable slots sharing a tail body. Codegen rejects overlaps,
-# and mid-group slots FATAL, so each slot is an ADJACENT entry ending where
-# the next begins; hooks.cpp chains them (each override runs its stub then
-# calls the next, mirroring HW fall-through-on-return).
+# Virtual-dispatch thunk (vtable slot, offset 36). Evidence: contiguous array
+# scan 2026-09-11: identical lwz/mtctr/bctr shape directly below C2C8
+# (ends 0x82C4C2C8); the unblocked frontier calls the next-lower slot each run.
+[entrypoint.functions.82C4C2A8]
+end = 0x82C4C2C8
+
+# Virtual-dispatch thunks (vtable slots, offsets 40/44). Evidence: FATAL call
+# to 0x82C4C2C8 2026-09-11 in run 500; bytes decode to two adjacent
+# lwz/mtctr/bctr thunks (C2C8 ends 0x82C4C2E8, C2E8 ends 0x82C4C300).
+# bctr: no fall-through, no native chaining.
+[entrypoint.functions.82C4C2C8]
+end = 0x82C4C2E8
+
+[entrypoint.functions.82C4C2E8]
+end = 0x82C4C300
+
+# Virtual-dispatch thunk (vtable slot, offset24). Evidence: FATAL call to
+# 0x82C4C300 2026-09-11 in chain-free run 499 (~25 s, early boot); bytes decode
+# to lwz/mtctr/bctr ending 0x82C4C31C, adjacent end 0x82C4C320. bctr: no
+# fall-through, no native chaining.
+[entrypoint.functions.82C4C300]
+end = 0x82C4C320
+
+# Virtual-dispatch thunks (vtable slots). Evidence: FATAL call to 0x82C4C5A8
+# 2026-09-11 in run 501 (title/attract); bytes decode to the lwz/mtctr/bctr
+# family (C5A8 ends 0x82C4C5C8); C588 directly below has identical 8-word
+# shape (ends 0x82C4C5A8). bctr: no fall-through, no native chaining.
+[entrypoint.functions.82C4C5A8]
+end = 0x82C4C5C8
+
+[entrypoint.functions.82C4C588]
+end = 0x82C4C5A8
+
+# Thunk groups: adjacent vtable slots sharing bytes. Codegen rejects overlaps,
+# so each slot is an ADJACENT entry ending where the next begins. Each slot is
+# an independent bctr-dispatch thunk (target inherits caller LR, blr returns
+# to caller): HW never falls through between slots, so no native chaining.
 # Twin group (offsets 8/16), body has real prologue at C360.
 [entrypoint.functions.82C4C320]
 end = 0x82C4C340
@@ -152,3 +186,109 @@ end = 0x82C4C630
 
 [entrypoint.functions.82C4C630]
 end = 0x82C4C670
+
+# Constant getter (li r3,0x43/blr). Evidence: FATAL call to 0x8274B798
+# 2026-09-11 in run 502 at new-game load entry (chain-free, zero 0x34 faults).
+[entrypoint.functions.8274B798]
+end = 0x8274B7A0
+
+# Indirect-dispatch thunks (7 contiguous 4-insn slots, lwz/mtctr/bctr).
+# Evidence: FATAL call to 0x8274B748 2026-09-11 in run 505 at new-game load;
+# array scan shows identical shape from 0x8274B728 to 0x8274B788 (stride 0x10),
+# bounded above by an epilogue and joining the registered 0x8274B798 slot.
+[entrypoint.functions.8274B728]
+end = 0x8274B738
+
+[entrypoint.functions.8274B738]
+end = 0x8274B748
+
+[entrypoint.functions.8274B748]
+end = 0x8274B758
+
+[entrypoint.functions.8274B758]
+end = 0x8274B768
+
+[entrypoint.functions.8274B768]
+end = 0x8274B778
+
+[entrypoint.functions.8274B778]
+end = 0x8274B788
+
+[entrypoint.functions.8274B788]
+end = 0x8274B798
+
+# Indirect-dispatch thunks (12 contiguous 4-insn slots, lwz/mtctr/bctr).
+# Evidence: FATAL call to 0x82988ED8 2026-09-11 in run 504 at new-game load;
+# array scan shows identical shape from 0x82988E98 to 0x82988F48 (stride 0x10,
+# r3/r4 variants); bounded by non-thunk code on both sides. bctr: no chaining.
+[entrypoint.functions.82988E98]
+end = 0x82988EA8
+
+[entrypoint.functions.82988EA8]
+end = 0x82988EB8
+
+[entrypoint.functions.82988EB8]
+end = 0x82988EC8
+
+[entrypoint.functions.82988EC8]
+end = 0x82988ED8
+
+[entrypoint.functions.82988ED8]
+end = 0x82988EE8
+
+[entrypoint.functions.82988EE8]
+end = 0x82988EF8
+
+[entrypoint.functions.82988EF8]
+end = 0x82988F08
+
+[entrypoint.functions.82988F08]
+end = 0x82988F18
+
+[entrypoint.functions.82988F18]
+end = 0x82988F28
+
+[entrypoint.functions.82988F28]
+end = 0x82988F38
+
+[entrypoint.functions.82988F38]
+end = 0x82988F48
+
+[entrypoint.functions.82988F48]
+end = 0x82988F58
+
+# Guarded virtual-dispatch (mr/cmplwi/beqlr + lwz/mtctr/bctr, ends 0x82EAA9A0)
+# plus tiny byte-setter (li/stb/blr at 0x82EAA9A8, ends 0x82EAA9B4).
+# Evidence: FATAL call to 0x82EAA980 2026-09-11 in run 506 at new-game load.
+[entrypoint.functions.82EAA980]
+end = 0x82EAA9A4
+
+[entrypoint.functions.82EAA9A8]
+end = 0x82EAA9B4
+
+# Global getter (lis/la/blr). Evidence: FATAL call to 0x82EC1918 2026-09-11
+# in run 507 at new-game load (chain-free, zero 0x34 faults).
+[entrypoint.functions.82EC1918]
+end = 0x82EC1924
+
+# Small FP field setter (lis/li/lfs/stfs/blr). Evidence: FATAL call to
+# 0x82E87A10 2026-09-11 in run 508 at new-game load (zero 0x34 faults).
+[entrypoint.functions.82E87A10]
+end = 0x82E87A24
+
+# Guarded virtual-dispatch (null check returns 0x80000005, else
+# lwz/mtctr/bctr). Evidence: FATAL call to 0x82B56870 2026-09-11 in run 509
+# at new-game load (zero 0x34 faults).
+[entrypoint.functions.82B56870]
+end = 0x82B568A8
+
+# FP/VMX init routine (lis/lwz/lfd/stfd/blr). Evidence: FATAL call to
+# 0x824D56C8 2026-09-11 in run 510 at new-game load (zero 0x34 faults).
+[entrypoint.functions.824D56C8]
+end = 0x824D5704
+
+# VMX-conditional init routine (single blr at 0x822D6854, no indirect branch).
+# Evidence: FATAL call to 0x822D6678 2026-09-11 in run 511 at new-game load
+# (zero 0x34 faults).
+[entrypoint.functions.822D6678]
+end = 0x822D6858

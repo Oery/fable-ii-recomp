@@ -34,11 +34,7 @@ extern "C" void sub_832AF210(PPCContext& ctx, uint8_t* base) {
 #include <mutex>
 #include <rex/hook.h>
 #include "fable_ii_pch.h"
-// PERF (2026-09-10): silence every diagnostic probe in this TU. All
-// fprintf here is logging; SDK uses spdlog. Keeps: resume-jump logic,
-// thunk chains (no logging in them). One line, fully reversible.
-// RE-ENABLED 2026-09-11 for instrumented 0x34 replay (re-silence after).
-#define PROBE_LOG(...) std::fprintf(__VA_ARGS__)
+#define PROBE_LOG(...) ((void)0)
 // 2026-09-10: plain mutex self-deadlocks on 82BCA340 -> 82BC9E10 reentrancy
 // (Permanent Bank stuck, GDB-proven) — BUT any reentrant-capable form
 // (none, recursive) lets Permanent Bank complete a path after which the 3D
@@ -1191,42 +1187,6 @@ extern "C" void sub_82CA9260(PPCContext& ctx, uint8_t* base) {
 }
 R1BAL_PROBE(82BCC6F0)
 R1BAL_PROBE(82BCCAB8)
-// Thunk-slot chains (2026-09-10): vtable slots sharing a tail body are
-// adjacent manifest entries; HW falls through on bctrl-return, so each
-// override runs its stub then explicitly calls the next slot/body.
-// 2026-09-11: chain tracking (tls_chain_from) + context log to nail the
-// 0x34 fault (chained fall-through vs direct vtable call, object in r3).
-static thread_local uint32_t tls_chain_from = 0;
-static inline uint32_t chain_rd(PPCContext& ctx, uint8_t* base, uint32_t a) {
-  if (a < 0x10000 || a >= 0x84000000) return 0xDDDDDDDD;
-  uint32_t b = 0;
-  std::memcpy(&b, base + a, 4);
-  return __builtin_bswap32(b);
-}
-#define THUNK_CHAIN(from, to) \
-  REX_IMPORT(__imp__sub_##from, probe_o_##from, void()); \
-  extern "C" void sub_##to(PPCContext& ctx, uint8_t* base); \
-  extern "C" void sub_##from(PPCContext& ctx, uint8_t* base) { \
-    uint32_t gid = rex::system::XThread::GetCurrentThread()->guest_object(); \
-    uint32_t chained = tls_chain_from; \
-    tls_chain_from = 0; \
-    uint32_t r3 = ctx.r3.u32; \
-    uint32_t r11 = chain_rd(ctx, base, r3 + 4); \
-    uint32_t f52 = chain_rd(ctx, base, r11 + 52); \
-    bool w = (gid == 0x3009C018); \
-    if (w || chained) PROBE_LOG(stderr, "CHAIN %08X->%08X gid=%08X r3=%08X r11=%08X f52=%08X lr=%08X was=%08X\n", \
-      0x##from, 0x##to, gid, r3, r11, f52, (uint32_t)ctx.lr, chained); \
-    probe_o_##from(ctx, base); \
-    tls_chain_from = 0x##from; \
-    sub_##to(ctx, base); \
-    tls_chain_from = 0; \
-  }
-THUNK_CHAIN(82C4C320, 82C4C340)
-THUNK_CHAIN(82C4C340, 82C4C360)
-THUNK_CHAIN(82C4C5C8, 82C4C5E8)
-THUNK_CHAIN(82C4C5E8, 82C4C610)
-THUNK_CHAIN(82C4C610, 82C4C630)
-THUNK_CHAIN(829FCAE8, 829FCB00)
 // Park probes (2026-09-10): worker enters 82C65D80 and never returns.
 // Log EVERY worker entry/exit on its plausible-blocking callees; the one
 // with ENTER-but-no-EXIT is the park. Cold paths only.
