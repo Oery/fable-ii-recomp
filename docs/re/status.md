@@ -1437,3 +1437,19 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
 - Perf: game 375% CPU + 80% GPU at 1920x1080 WITH RenderDoc layer attached;
   true FPS still unmeasured (needs clean run). 8.9 GB VRAM reading was
   ollama (7.2 GB), not a game leak - game holds ~2.3 GB, freed on exit.
+
+## Capture attempts 2026-09-11 ~21:30-22:10 (all blocked, ground still open)
+
+- RenderDoc LD_PRELOAD (librenderdoc + FIFO shim tooling/rd-cap-shim.c):
+  instance creation FAILS (ErrorIncompatibleDriver) even with the working
+  nix ICD. Without preload the game boots. Shim alone is inert (app dlopens
+  librenderdoc RTLD_LOCAL: no RENDERDOC_GetAPI via RTLD_DEFAULT).
+- `renderdoccmd inject --PID`: unsupported on Linux (Windows only).
+- Implicit layer via XDG_DATA_DIRS: never attached (no evidence in logs);
+  PrintScreen therefore never triggers. Hyprland Print bind freed + restored.
+- apitrace (nixpkgs#apitrace 14.0): GL/EGL only, no Vulkan tracer.
+- No python renderdoc bindings (not in nixpkgs, not on PyPI); qrenderdoc UI
+  needs interactive use; ptrace denied (no GDB dlopen injection).
+- NEXT: ground-transparency needs a frame capture; easiest remaining path is
+  user-driven qrenderdoc UI session OR fixing preload-instance failure.
+- sterilized VRAM-leak scare: 8.9 GB was ollama, not the game.
