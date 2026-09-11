@@ -1517,3 +1517,13 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   only framegraph + dispatch/IRQ/BufQ/threads work). F3 FPS digits missing.
 - Proper next step is SDK-side submission profiling (draw counts, vertex
   load, shadow passes) - parked; needs a non-play session + working capture.
+
+## 60 FPS program notes 2026-09-12 ~01:50 (MangoHud run booting)
+
+- Audio mutex spin (~17% in perf) is GUEST-driven XMA register polling
+  (BlockOnContext poll=true); faithful emulation, separate thread, not the
+  FPS bottleneck. Parked (fix = yield-on-miss, timing-sensitive).
+- I/O measured trivial (9 KB/s reads, 0 writes) - not a factor.
+- Present modes (immediate/mailbox) all allowed by default; FIFO fallback
+  would cap at smooth divisors - choppy ~10 FPS suggests slow frames, not
+  vsync cap. MangoHud will give the first true number.
