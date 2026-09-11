@@ -311,3 +311,8 @@ end = 0x82903F80
 
 [entrypoint.functions.82903F80]
 end = 0x82903F90
+
+# Indirect-dispatch thunk (lwz/mtctr/bctr, offset 100). Evidence: FATAL call
+# to 0x8297EB48 2026-09-11 in save-xenia run at early boot (zero faults).
+[entrypoint.functions.8297EB48]
+end = 0x8297EB58
