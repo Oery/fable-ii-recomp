@@ -10,6 +10,16 @@ file_path = "assets-extracted/00007000/default.xex"
 out_directory_path = "generated/default"
 includes = []
 
+# TEST (reversible, 2026-09-11): beq@8220EF10 forced to ALWAYS jump to
+# 0x8220F08C (Xenia-community "Disable Texture Morphing": patch word
+# 0x4280017C has BO=20 = unconditional; the F08C path skips morph execution).
+# NOTE: mid-ASM config MUST live under [entrypoint] (LoadBinaryConfig loads
+# the entrypoint subtable); root-level [[midasm_hook]] is silently ignored.
+[[entrypoint.midasm_hook]]
+address = 0x8220EF10
+name = "morph_skip"
+jump_address = 0x8220F08C
+
 # Verified PPC boundaries; evidence is in docs/re/functions.md.
 [entrypoint.functions.82CD7948]
 end = 0x82CD7958

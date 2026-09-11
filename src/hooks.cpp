@@ -2101,3 +2101,14 @@ extern "C" void sub_82CE5AB8(PPCContext& ctx, uint8_t* base) {
   }
   wait_o_82CE5AB8(ctx, base);
 }
+
+// TEST (reversible, 2026-09-11): no-op called by the morph mid-ASM hook
+// ([[midasm_hook]] 0x8220EF10). The goto it emits does the work; this logs
+// first-hit so firings are visible.
+void morph_skip() {
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    std::fprintf(stderr, "MORPH-SKIP fired\n");
+  }
+}
