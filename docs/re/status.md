@@ -1469,3 +1469,14 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   semantics (dead bytes post-bctr), RenderDoc env absent in both 531/black
   and current/render runs - input/timing confounds unresolved).
 - No stray renderdoc/game processes; no .rdc files (capture never fired).
+
+## Morph skip works 2026-09-12 ~00:25 (user-verified)
+
+- Hero skin/dog textures render with the mid-ASM morph skip compiled in
+  (beq@8220EF10 -> always F08C). Oakfield dirt/grass also fully textured.
+- Config lesson (stale-cache red herring resolved): [[midasm_hook]] MUST live
+  under [entrypoint] (LoadBinaryConfig loads the entrypoint subtable; root
+  arrays are silently ignored, no error). Temp generated edits revert on any
+  module regen - verify emission (`morph_skip(); goto`) after every codegen.
+- Open: Bowerstone snow-street transparency (unverified this run), dog
+  close-up, FPS number, fsi A/B (lower priority now).
