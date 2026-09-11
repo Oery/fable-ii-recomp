@@ -1493,3 +1493,17 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   Source drive untouched (hashes match). Six pre-existing heroes are
   header-only stubs (8 B saveuid + 328 B header, no bulk payload).
 - F3 overlay: frame graph works, FPS digits missing (frame_count provider).
+
+## Perf/boot program 2026-09-12 ~00:55 (user asked; no-MSAA run live)
+
+- Build type: RelWithDebInfo (-O2 -DNDEBUG), NOT Release. -O3 gains are
+  marginal (~10-15%); not the lever. (Corrected from an earlier 2-3x claim.)
+- Boot measured: native init ~10 s (Vulkan/audio/Xenos); minutes after are
+  ~600 GPU pipeline creations + guest asset streaming (138 bank buffers)
+  with full debug logging. Current run tests --no-native_2x_msaa at 1080p.
+- `--resolution 1080p` works (guest video mode honored; was 1120x720).
+- Dispatch counter = guest PPC calls at ~2M/s fixed throughput (NOT a
+  CPU-bound proof; longer frames trivially show larger snapshots).
+- Next levers (ranked): quieter logging for play runs (--log_level);
+  keep 1080p vs 720p by feel; profile thread breakdown + present rate
+  before any rebuild.
