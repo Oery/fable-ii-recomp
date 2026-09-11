@@ -334,3 +334,8 @@ end = 0x82DDC4F4
 
 [entrypoint.functions.82DDC4F8]
 end = 0x82DDC510
+
+# Indirect-dispatch thunk (lwz/mtctr/bctr, offset 92). Evidence: FATAL call
+# to 0x8297EB28 2026-09-12 when the hero touches water (zero faults).
+[entrypoint.functions.8297EB28]
+end = 0x8297EB38
