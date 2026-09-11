@@ -1453,3 +1453,17 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
 - NEXT: ground-transparency needs a frame capture; easiest remaining path is
   user-driven qrenderdoc UI session OR fixing preload-instance failure.
 - sterilized VRAM-leak scare: 8.9 GB was ollama, not the game.
+
+## Perf finding 2026-09-11 ~22:20 (live, no restart)
+
+- Overlay "Dispatch" = kFunctionsDispatched = GUEST PPC function calls, not
+  GPU draws (Draw: kDrawCalls is separate). 150-200k/frame correlate with
+  ~10 FPS; ~80k feels smooth. Game is CPU-bound in emulation (375% CPU).
+- Biggest safe lever: Release build (current binary is RelWithDebInfo).
+  Window size does NOT help (guest backbuffer fixed by game, proven 09-09).
+- Queued for next restart (user playing now): fsi A/B
+  (--render_target_path_vulkan=fsi) for the transparent street; clean
+  ground-repro (this run's recovery unattributed: CB00 relink changed no
+  semantics (dead bytes post-bctr), RenderDoc env absent in both 531/black
+  and current/render runs - input/timing confounds unresolved).
+- No stray renderdoc/game processes; no .rdc files (capture never fired).
