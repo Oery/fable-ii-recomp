@@ -1507,3 +1507,13 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
 - Next levers (ranked): quieter logging for play runs (--log_level);
   keep 1080p vs 720p by feel; profile thread breakdown + present rate
   before any rebuild.
+
+## Perf verdict 2026-09-12 ~00:40 (user-driven, NVIDIA 1080p no-MSAA)
+
+- Symptom localizes to NPC/object density (not old-vs-new areas, so NOT
+  shader-compile hitches). Main thread 38%, GPU 76%, MSAA-off unchanged:
+  vertex/draw-bound on crowds, not fill-rate. Resolution changes won't help.
+- Overlay Draw/Stalls/Verts counters read 0/0/0 (unpopulated in this build;
+  only framegraph + dispatch/IRQ/BufQ/threads work). F3 FPS digits missing.
+- Proper next step is SDK-side submission profiling (draw counts, vertex
+  load, shadow passes) - parked; needs a non-play session + working capture.
