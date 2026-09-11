@@ -1480,3 +1480,16 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   module regen - verify emission (`morph_skip(); goto`) after every codegen.
 - Open: Bowerstone snow-street transparency (unverified this run), dog
   close-up, FPS number, fsi A/B (lower priority now).
+
+## Verification sweep 2026-09-12 ~00:35 (user-driven, NVIDIA)
+
+- Water contact crash fixed by 8297EB28 slot (user retested OK).
+- Bowerstone street: renders on current runs (was transparent on
+  526/535-era runs); flaky across runs, root cause open (timing suspected,
+  fsi A/B still queued as discriminator).
+- Dog/hero skin: fixed by morph skip (user-verified textured).
+- Saves: local bulk write (130 KB mainsave) + restart + Continuer load +
+  user Xenia save (460 KB) load + save+quit update (466 KB) all verified.
+  Source drive untouched (hashes match). Six pre-existing heroes are
+  header-only stubs (8 B saveuid + 328 B header, no bulk payload).
+- F3 overlay: frame graph works, FPS digits missing (frame_count provider).
