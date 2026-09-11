@@ -2073,3 +2073,30 @@ GATEFAM(821CCB20)
 GATEFAM(821961A0)
 GATEFAM(8236D0A8)
 GATEFAM(8229A9D8)
+
+#include <thread>
+// TEST (reversible, 2026-09-11): audio-singleton order gate. Consumer
+// sub_82CE5AB8 reads singleton [0x833370E4] then [r11+60]; on NVIDIA timing
+// the filler sub_82CDB4D8 never runs first (GDB: 6 consumer hits, 0 fill,
+// 0 clear) and the read storms at guest 0x3C. Bounded wait for the fill,
+// then passthrough. TIMEOUT verdict distinguishes race (proceeds) from
+// skip (still faults after wait). fprintf used directly: PROBE_LOG is
+// silenced globally.
+REX_IMPORT(__imp__sub_82CE5AB8, wait_o_82CE5AB8, void());
+extern "C" void sub_82CE5AB8(PPCContext& ctx, uint8_t* base) {
+  static const uint32_t kSingleton = 0x833370E4;
+  uint32_t v = 0;
+  auto t0 = std::chrono::steady_clock::now();
+  for (;;) {
+    std::memcpy(&v, base + kSingleton, 4);
+    v = __builtin_bswap32(v);
+    if (v != 0) break;
+    if (std::chrono::steady_clock::now() - t0 > std::chrono::seconds(30)) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  {
+    static std::atomic<int> n{0};
+    if (n++ < 8) std::fprintf(stderr, "SINGLETON-WAIT v=%08X\n", v);
+  }
+  wait_o_82CE5AB8(ctx, base);
+}

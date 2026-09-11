@@ -1416,3 +1416,24 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   real NVIDIA X screen AND likely Xenos-side work (fragment stores/atomics
   per the vulkan_require_* cvars). llvmpipe remains the correct-rendering
   (slow) default. Parked here; no game-code impact (all experiments env-only).
+
+## NVIDIA verdict 2026-09-11 ~21:00 (user present, clean run, fix confirmed)
+
+- Tessellation cbuffer fix CONFIRMED: menus/charselect/Bowerstone gameplay
+  all render WITHOUT RenderDoc (earlier black was missed taps + the old
+  storm, not the fix failing). SDK patch saved separable:
+  docs/re/patches/sdk-tessellation-cbuffer-set.patch (SDK tree itself has
+  this + 2 pre-existing local patches: TEMP-DIAG fault-PC, keep-open).
+- Order-gate TEST hook (src/hooks.cpp, reversible): 82CE5AB8 waits bounded
+  30 s for singleton [0x833370E4]. GDB showed 6 consumer hits with 0 fill /
+  0 clear before them (pure init race; llvmpipe's slowness orders it right).
+  In the lucky-ordering runs the gate logs v=441052AC with zero wait.
+- vpad stopped: user's physical pad enumerates as slot 0 (P1) and drives
+  everything. Game reads menus on slot 0; gameplay accepted slot 1 earlier.
+- REMAINING defect: Bowerstone ground fully transparent on NVIDIA (same
+  ground renders red-tinted snow on llvmpipe). No validation errors, no
+  faults, no FATALs, no texture-cache complaints. Suspect: ground material
+  path (alpha-test discard? depth? vertex fetch?) diverging per GPU.
+- Perf: game 375% CPU + 80% GPU at 1920x1080 WITH RenderDoc layer attached;
+  true FPS still unmeasured (needs clean run). 8.9 GB VRAM reading was
+  ollama (7.2 GB), not a game leak - game holds ~2.3 GB, freed on exit.

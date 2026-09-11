@@ -1,0 +1,30 @@
+src/graphics/vulkan/pipeline_cache.cpp --- C++
+ 91                                       91 
+ 92 std::string GetTessellationSystemCo   92 std::string GetTessellationSystemCo
+ .. nstantsBlockGlsl() {                  .. nstantsBlockGlsl() {
+ 93   std::string source;                 93   std::string source;
+ ..                                       94   // System constants live in the c
+ ..                                       .. onstants set (UNIFORM_BUFFER), NOT 
+ ..                                       .. set 0
+ ..                                       95   // (shared memory SSBO): set 0 bi
+ ..                                       .. nding 0 fails VUID-07990 on strict 
+ ..                                       .. drivers
+ ..                                       96   // (NVIDIA: pipeline creation fai
+ ..                                       .. ls -> black 3D) while llvmpipe tole
+ ..                                       .. rates it.
+ ..                                       97   // Set 1 = kDescriptorSetConstant
+ ..                                       .. s, binding 0 = kConstantBufferSyste
+ ..                                       .. m.
+ 94   source += "layout(set = 0, bindin   98   source += "layout(set = 1, bindin
+ .. g = 0, std140) uniform XeSystemCons   .. g = 0, std140) uniform XeSystemCons
+ .. tants {\n";                           .. tants {\n";
+ 95   source += fmt::format("  layout(o   99   source += fmt::format("  layout(o
+ .. ffset = {}) uint xe_vertex_index_en   .. ffset = {}) uint xe_vertex_index_en
+ .. dian;\n",                             .. dian;\n",
+ 96                         offsetof(Sp  100                         offsetof(Sp
+ .. irvShaderTranslator::SystemConstant  ... irvShaderTranslator::SystemConstant
+ .. s, vertex_index_endian));            ... s, vertex_index_endian));
+ 97   source += fmt::format("  layout(o  101   source += fmt::format("  layout(o
+ .. ffset = {}) int xe_vertex_base_inde  ... ffset = {}) int xe_vertex_base_inde
+ .. x;\n",                               ... x;\n",
+
