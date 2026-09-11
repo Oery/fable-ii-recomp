@@ -1454,13 +1454,15 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   user-driven qrenderdoc UI session OR fixing preload-instance failure.
 - sterilized VRAM-leak scare: 8.9 GB was ollama, not the game.
 
-## Perf finding 2026-09-11 ~22:20 (live, no restart)
+## Perf finding 2026-09-11 ~22:20 (CORRECTED - see below, do not use as stated)
 
-- Overlay "Dispatch" = kFunctionsDispatched = GUEST PPC function calls, not
-  GPU draws (Draw: kDrawCalls is separate). 150-200k/frame correlate with
-  ~10 FPS; ~80k feels smooth. Game is CPU-bound in emulation (375% CPU).
-- Biggest safe lever: Release build (current binary is RelWithDebInfo).
-  Window size does NOT help (guest backbuffer fixed by game, proven 09-09).
+- WITHDRAWN: "150-200k dispatches/frame => CPU-bound" is wrong. 200k x 10 FPS
+  ~= 80k x 25 FPS ~= 2M dispatches/s: fixed throughput, longer frames show
+  larger snapshot counts trivially. Need dispatches/sec + measured FPS before
+  choosing any lever.
+- WITHDRAWN: "Release is 2-3x faster". RelWithDebInfo here is already
+  -O2 -DNDEBUG; Release (-O3) gains are marginal (~10-15%). Debug symbols
+  have no runtime cost. Do NOT schedule a rebuild on that claim.
 - Queued for next restart (user playing now): fsi A/B
   (--render_target_path_vulkan=fsi) for the transparent street; clean
   ground-repro (this run's recovery unattributed: CB00 relink changed no

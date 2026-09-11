@@ -2074,6 +2074,7 @@ GATEFAM(821961A0)
 GATEFAM(8236D0A8)
 GATEFAM(8229A9D8)
 
+
 #include <thread>
 // TEST (reversible, 2026-09-11): audio-singleton order gate. Consumer
 // sub_82CE5AB8 reads singleton [0x833370E4] then [r11+60]; on NVIDIA timing
