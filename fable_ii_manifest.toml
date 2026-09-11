@@ -302,3 +302,12 @@ end = 0x82E861C4
 
 [entrypoint.functions.82E861C4]
 end = 0x82E861CC
+
+# Indirect-dispatch thunks (lwz/mtctr/bctr, offsets 20/8). Evidence: FATAL
+# call to 0x82903F70 2026-09-11 in save-xenia run after NPC dialogue at
+# menu close (zero 0x34 faults).
+[entrypoint.functions.82903F70]
+end = 0x82903F80
+
+[entrypoint.functions.82903F80]
+end = 0x82903F90
