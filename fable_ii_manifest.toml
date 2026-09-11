@@ -82,11 +82,11 @@ end = 0x82B84358
 [entrypoint.functions.829FCAE8]
 end = 0x829FCB00
 
-# Virtual-dispatch thunk (vtable slot, offset12). Evidence: FATAL call to
-# 0x829FCB00 2026-09-10 after resume-jump unblocked the drain; bytes decode
-# to lwz/mtctr/bctrl + post-call loop ending in blr at 0x829FCBA0.
+# bctr-dispatch thunk (6 insn: lwz/mtctr/bctr ending 0x829FCB14). Evidence:
+# FATAL call to 0x829FCB00 2026-09-10 after resume-jump; 0x829FCB18 starts
+# separate code (std prologue), so end = 0x829FCB18 (was 0x829FCBA4).
  [entrypoint.functions.829FCB00]
- end = 0x829FCBA4
+end = 0x829FCB18
 
 # Trivial getter (lis/lwz/blr). Evidence: FATAL at 0x822142D0 2026-09-10
 # during visible title run.
