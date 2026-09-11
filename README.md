@@ -1,12 +1,11 @@
-# Fable II — Native Recompilation (Experimental)
+# Fable II — Native Recompilation (WIP)
 
 An experimental static recompilation of Fable II for modern x86-64 Linux,
 built with [ReXGlue](https://github.com/Rexicon226/rexglue-sdk).
 It recompiles the game's Xbox 360 PowerPC executable into native code while
 preserving its observable behavior. This is not a source reconstruction.
 
-**Status: experimental and not broadly playable.** It reaches early
-Bowerstone gameplay, with major graphics/performance issues. See
+**Status: experimental and not broadly playable.** See
 [docs/re/status.md](docs/re/status.md) for the current milestone and blocker.
 
 ## You provide the game
@@ -52,7 +51,7 @@ Useful follow-ups: `scripts/inspect-last-run` summarizes the latest run log;
 
 | Path                   | What it is                                            |
 | ---------------------- | ----------------------------------------------------- |
-| `src/`                 | Native overrides and runtime integration (yours)      |
+| `src/`                 | Native overrides and runtime integration              |
 | `fable_ii_manifest.toml` | ReXGlue project config: entrypoint + function bounds |
 | `scripts/`             | Reproducible extract / codegen / build / run helpers  |
 | `docs/re/`             | Reverse-engineering notes, status, function evidence  |
