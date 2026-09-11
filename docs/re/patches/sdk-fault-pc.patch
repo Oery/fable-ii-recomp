@@ -1,0 +1,63 @@
+src/system/mmio_handler.cpp --- 1/2 --- C++
+  9   9  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+ 10  10  */
+ 11  11 
+ ..  12 #include <dlfcn.h>
+ 12  13 #include <algorithm>
+ 13  14 #include <cstring>
+ 14  15 #include <utility>
+
+src/system/mmio_handler.cpp --- 2/2 --- C++
+417     // The address is not found wit  418     // The address is not found wit
+... hin any range, so either a write wa  ... hin any range, so either a write wa
+... tch or an                            ... tch or an
+418     // actual access violation.      419     // actual access violation.
+419     if (access_violation_callback_)  420     if (access_violation_callback_)
+...  {                                   ...  {
+...                                      421       // TEMP-DIAG 2026-09-10 (Fabl
+...                                      ... e II bring-up): attribute unhandled
+...                                      ...  guest
+...                                      422       // faults to the faulting nat
+...                                      ... ive PC (module+offset for addr2line
+...                                      ... ).
+...                                      423       // Revert once the 821E27C8:[
+...                                      ... 0x14] storm is root-caused.
+420       return access_violation_callb  424       bool handled = access_violati
+... ack_(std::move(lock), access_violat  ... on_callback_(
+... ion_callback_context_,               ... 
+421                                      425           std::move(lock), access_v
+...      fault_host_address, is_write);  ... iolation_callback_context_, fault_h
+...                                      ... ost_address,
+...                                      426           is_write);
+...                                      427       if (!handled) {
+...                                      428         Dl_info dli{};
+...                                      429         const char* mod = "?";
+...                                      430         uintptr_t off = ex->pc();
+...                                      431         if (dladdr(reinterpret_cast
+...                                      ... <void*>(ex->pc()), &dli) && dli.dli
+...                                      ... _fbase) {
+...                                      432           off -= reinterpret_cast<u
+...                                      ... intptr_t>(dli.dli_fbase);
+...                                      433           mod = dli.dli_fname ? dli
+...                                      ... .dli_fname : "?";
+...                                      434         }
+...                                      435         REXLOG_ERROR("Unhandled gue
+...                                      ... st fault: guest={:#x} {} rip={:#x} 
+...                                      ... ({}+{:#x})",
+...                                      436                      fault_guest_vi
+...                                      ... rtual_address, is_write ? "write" :
+...                                      ...  "read",
+...                                      437                      ex->pc(), mod,
+...                                      ...  off);
+...                                      438       }
+...                                      439       return handled;
+422     }                                440     }
+...                                      441     REXLOG_ERROR("Unhandled guest f
+...                                      ... ault (no callback): guest={:#x} rip
+...                                      ... ={:#x}",
+...                                      442                  fault_guest_virtua
+...                                      ... l_address, ex->pc());
+423     return false;                    443     return false;
+424   }                                  444   }
+425                                      445 
+

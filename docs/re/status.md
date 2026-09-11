@@ -1324,3 +1324,63 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   wait title, a:5000 xN with <15 s checks), Bowerstone load needs
   30-60+ min at 1 FPS. Consider: smaller window, release build, attack
   the 0x34 producer if load still never completes.
+
+## Autonomous drive + THUNK_CHAIN removal 2026-09-11 ~15:00-17:30
+
+- Re-silenced (PROBE_LOG no-op, quiet binary 15:19). Xvfb :98 + vpad drive
+  works fully autonomously: title -> tap-burst A -> menu -> A (nouvelle) ->
+  A (continuer sans sauvegarder) -> left (boy) -> A -> Bowerstone load.
+  Screenshots verify every step. Per-press reliability ~1/3 at ~1 FPS;
+  3x `a:1500` tap bursts beat single holds (holds up to 15 s ignored).
+- vpad FIXES (scripts/vpad.py): (1) added missing HAT dict (NameError on
+  left/right/up/down); (2) added full 360 stick axes (ABS_X/Y/RX/RY/Z/RZ):
+  the buttons-only pad never produced SDL OnControllerDeviceAdded (game
+  never saw it); with axes SDL classifies it "Xbox 360 Controller"
+  is_gamepad=1 mapping=yes (tooling/sdl-pad-probe.c verifies against the
+  SDK's own SDL3; needs nix systemd-minimal-libs libudev at runtime, never
+  /usr/lib: glibc conflict). Pad enumerates at boot AND via hotplug.
+- ADVISORY-CONFIRMED BUG: THUNK_CHAIN (hooks.cpp) was semantically wrong.
+  C320/C340 end in bctr (not bctrl): target inherits caller LR, blr returns
+  to caller; HW never falls through to the adjacent slot. The macro
+  unconditionally re-ran the next slot with clobbered registers after every
+  call — fabricating the 0x34 storm ([r3+4]=0 -> [0+52]=0x34 read in the
+  chained C340). DELETED all 6 chains + tls tracking (hooks.cpp:1190-1225);
+  corrected manifest comments (entries kept: real independent slots).
+  Result: ZERO 0x34 faults in every chain-free run (was 13k-300k/run).
+  The "infinitely SLOW" verdict is void: the storm's signal-handler churn
+  was the suspected starver, and it was ours, not the game's.
+- Frontier grind since (run->FATAL->decode->manifest->codegen->build,
+  all bctr-thunk arrays registered contiguously after bounds scans):
+  82C4C300, 82C4C2C8, 82C4C2E8, 82C4C2A8 (C2 array now C2A8-C360);
+  82C4C5A8, 82C4C588 (C5 array now C588-C630); 8274B798 (li r3,0x43);
+  82988E98-EF48 (12-slot array); 8274B728-788 (7-slot array);
+  82EAA980 (guard+dispatch) + 82EAA9A8 (setter); 82EC1918, 82E87A10,
+  82B56870 (guarded dispatch), 824D56C8, 822D6678. Manifest now 60+ entries.
+  grind-frontier canNOT auto-decode these (decoder seeks blr 0x4E800020;
+  thunks end bctr 0x4E800420 -> MANUAL REVIEW). Run 512 (binary 17:19)
+  is past every prior FATAL at new-game load with 0 faults: long quiet
+  load observation in progress under Xvfb.
+- Debt: nix store GC re-fetched xwd/imagemagick mid-session (screenshot
+  latency). Xvfb :98 + vpad persist via hub; game relaunched per build.
+  Route recipe: Start:4000 -> title shot -> 3x a:1500 -> shot -> step A
+  presses with shots (popup -> A -> charselect -> left:3000 -> A).
+
+## M8 gameplay 2026-09-11 ~17:45 (run 512, binary 17:19, 66 manifest entries)
+
+- Bowerstone load COMPLETED chain-free: loading vista -> snowy Old Town
+  gameplay with boy character, golden trail, objective text "Suivez le chemin
+  lumineux pour atteindre votre prochain objectif." Screenshots r15-6/walk1.
+- Gameplay INPUT works: new vpad `stick:<x>,<y>[:<ms>]` left-stick drive
+  (scripts/vpad.py) walked the boy forward along the path; camera followed.
+  vpad was restarted for stick support; the game survived the device
+  remove/add (hotplug) without restart.
+- Run 512 census at gameplay: ZERO FATALs, ZERO guest access violations in
+  all segments. The 0x34 storm never returned after chain deletion.
+- Open cosmetic: heavy red/pink tint over Bowerstone prologue (geometry,
+  snow, text all render; tint may be area lighting or a shader issue).
+  Not investigated; needs Xenia-oracle color compare.
+- M9 remaining: audio (unverified headless), save/load (slots full on this
+  profile; "continuer sans sauvegarder" path used), longer stability,
+  red-tint verdict, release-build perf (~1 FPS llvmpipe).
+- Live state: game (run 512, Bowerstone gameplay) + Xvfb :98 + vpad all
+  persist via hub. Binary build/native/fable_ii @17:19 is the M8 binary.
