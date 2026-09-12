@@ -2085,6 +2085,18 @@ GATEFAM(8229A9D8)
 // silenced globally.
 REX_IMPORT(__imp__sub_82CE5AB8, wait_o_82CE5AB8, void());
 extern "C" void sub_82CE5AB8(PPCContext& ctx, uint8_t* base) {
+  // TEST (reversible, 2026-09-12): Xenia "High Tick Rate" data byte.
+  // Guest 0x83319511: 0x2E -> 0x3E (DATA address: runtime write is live).
+  // Original byte verified in guest-image.bin; logs once.
+  {
+    static bool done = false;
+    if (!done) {
+      done = true;
+      uint8_t* p = base + 0x83319511;
+      std::fprintf(stderr, "TICK-BYTE orig=%02X\n", p[0]);
+      p[0] = 0x3E;
+    }
+  }
   static const uint32_t kSingleton = 0x833370E4;
   uint32_t v = 0;
   auto t0 = std::chrono::steady_clock::now();
@@ -2110,5 +2122,15 @@ void morph_skip() {
   if (!logged) {
     logged = true;
     std::fprintf(stderr, "MORPH-SKIP fired\n");
+  }
+}
+
+// TEST (reversible, 2026-09-12): no-op called by the tick-rate mid-ASM hook
+// ([[midasm_hook]] 0x8233AEB4, skips one stfd). Logs first-hit.
+void tick_skip_stfd() {
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    std::fprintf(stderr, "TICK-SKIP fired\n");
   }
 }

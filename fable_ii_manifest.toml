@@ -10,6 +10,13 @@ file_path = "assets-extracted/00007000/default.xex"
 out_directory_path = "generated/default"
 includes = []
 
+# TEST (reversible, 2026-09-12): Xenia "High Tick Rate" stfd skip.
+# Skips exactly the stfd at 0x8233AEB4 (continues at AEB8). Data byte
+# 0x83319511 set separately in hooks.cpp (order-gate, DATA write is live).
+[[entrypoint.midasm_hook]]
+address = 0x8233AEB4
+name = "tick_skip_stfd"
+jump_address = 0x8233AEB8
 # TEST (reversible, 2026-09-11): beq@8220EF10 forced to ALWAYS jump to
 # 0x8220F08C (Xenia-community "Disable Texture Morphing": patch word
 # 0x4280017C has BO=20 = unconditional; the F08C path skips morph execution).
@@ -339,3 +346,8 @@ end = 0x82DDC510
 # to 0x8297EB28 2026-09-12 when the hero touches water (zero faults).
 [entrypoint.functions.8297EB28]
 end = 0x8297EB38
+
+# Tick-loop function containing the Xenia "High Tick Rate" stfd site.
+# Evidence: prologue stwu at 0x8233AE5C, bctrl end 0x8233AF8C.
+[entrypoint.functions.8233AE5C]
+end = 0x8233AF90
