@@ -1538,3 +1538,26 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
   CLI/TOML/env (duplicate-registration shadowing suspected, SDK bug filed
   mentally - needs ReXGlue-side fix).
 - Awaiting user drive + MangoHud content-rate read for next branch.
+
+## EOD 2026-09-12 ~02:30 - pars pro toto (60 FPS goal OPEN)
+
+- Tree clean + pushed; game + Xvfb stopped; shm cleaned. No processes left.
+- 60 FPS state: MangoHud measures PRESENTS (was 2400/s uncapped); content
+  rate unknown until user reads F3 digits (overlay provider fix in build).
+  Present spin NOT yet capped (cvar plumbing dead via CLI/TOML/env for
+  late-registered flags; F4 runtime toggle also no-ops - needs SDK fix or
+  swapchain recreation trigger).
+- Bottleneck evidence: main ~40%/core, GPU ~70%, MSAA/resolution-independent,
+  crowd-scaling, no pegging anywhere -> latency/sync suspect, not throughput.
+  Audio XMA poll spin (~17%) is guest-driven, parked.
+- Instrumentation live in tree: Vulkan draw/vert counters (D3D12 mirror),
+  overlay FPS-digit provider, tick-skip + morph-skip mid-ASM hooks,
+  order-gate, FIFO shim tool (unused), vk/sdl probes (tools/).
+- SDK nested repo has 1 local commit (tess/counters/overlay); mmio TEMP-DIAG
+  still dirty there. Title repo pushed.
+- Saves: local bulk + Xenia 466 KB load + save-update cycles verified;
+  user drive checksums match. Six old heroes are header stubs.
+- Graphics: hero/dog via morph skip; street transparency intermittent
+  (unattributed); red tint llvmpipe-only; 1080p via --resolution works.
+- Tomorrow entry: read F3 digits + MangoHud in crowds -> branch on content
+  rate (tick work if sim-capped ~15-30; draw/vertex profiling if not).
