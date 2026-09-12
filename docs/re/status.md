@@ -1527,3 +1527,14 @@ logging `(guest_cs, thread_id)` enter/leave transitions (capped/sampled),
 - Present modes (immediate/mailbox) all allowed by default; FIFO fallback
   would cap at smooth divisors - choppy ~10 FPS suggests slow frames, not
   vsync cap. MangoHud will give the first true number.
+
+## Tick experiment status 2026-09-12 ~02:20 (armed, unfired)
+
+- midasm skip at 0x8233AEB4 emits correctly; data byte 0x83319511 verified
+  0x2E->0x3E at runtime. But TICK-SKIP never fires: containing function
+  8233AE5C never executes on observed paths. Xenia tick addresses may be
+  revision-specific (bytes match, behavior unconfirmed).
+- Present cap via MangoHud fps_limit=60 live; vsync cvars unreachable via
+  CLI/TOML/env (duplicate-registration shadowing suspected, SDK bug filed
+  mentally - needs ReXGlue-side fix).
+- Awaiting user drive + MangoHud content-rate read for next branch.
