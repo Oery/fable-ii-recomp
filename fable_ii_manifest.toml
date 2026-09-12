@@ -347,7 +347,8 @@ end = 0x82DDC510
 [entrypoint.functions.8297EB28]
 end = 0x8297EB38
 
-# Tick-loop function containing the Xenia "High Tick Rate" stfd site.
-# Evidence: prologue stwu at 0x8233AE5C, bctrl end 0x8233AF8C.
+# Tick-loop function containing the Xenia "High Tick Rate" stfd site
+# (0x8233AEB4). Evidence: prologue stwu at 0x8233AE5C, first blr at
+# 0x8233D24C (bctrl mid-function calls are not ends).
 [entrypoint.functions.8233AE5C]
-end = 0x8233AF90
+end = 0x8233D250
