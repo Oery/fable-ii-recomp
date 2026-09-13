@@ -5,21 +5,10 @@ built with [ReXGlue](https://github.com/Rexicon226/rexglue-sdk).
 It recompiles the game's Xbox 360 PowerPC executable into native code while
 preserving its observable behavior. This is not a source reconstruction.
 
-**Status: playable with issues on NVIDIA (llvmpipe correct but ~1 FPS).**
-Boot → title → menu → new game / Continuer → Bowerstone gameplay works;
-saves load and persist. See
-[docs/re/status.md](docs/re/status.md) for milestones and blockers.
+**Status: playable**
 
-## Known graphics issues (NVIDIA, 2026-09-12)
+Game boots, prologue works. My post prologue save works fine. However, depending on the area, the framerate can tank pretty hard. It's roughly the same experience you'd get playing on a 360.
 
-- Fixed: black 3D (tessellation system-constants descriptor mismatch,
-  `[[entrypoint.midasm_hook]]` territory now documented in status).
-- Fixed: black hero/dog skin (texture-morph skip via mid-ASM hook at
-  `0x8220EF10`, mirroring upstream Xenia's workaround).
-- Intermittent: Bowerstone snow-street transparency (renders on some runs,
-  see-through on others; root cause unattributed - timing suspected).
-- Open: FPS soft in dense scenes (true number unmeasured; F3 overlay shows
-  frame graph but no FPS digits); red snow tint on llvmpipe only.
 
 ## You provide the game
 
