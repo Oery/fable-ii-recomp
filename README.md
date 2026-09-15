@@ -1,5 +1,8 @@
 # Fable II — Native Recompilation (WIP)
 
+> [!NOTE]
+> There are other Fable II recompilation projects made by other people going on. I haven't posted about mine anywhere.
+
 An experimental static recompilation of Fable II for modern x86-64 Linux,
 built with [ReXGlue](https://github.com/Rexicon226/rexglue-sdk).
 It recompiles the game's Xbox 360 PowerPC executable into native code while
